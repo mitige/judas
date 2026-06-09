@@ -78,6 +78,19 @@ Copier `mod/build/libs/judas-bridge-*.jar` dans `.minecraft/mods` (Forge 1.8.9).
 In-game : touche `K` = toggle bot, `L` = kill-switch, le mod se connecte à
 `ws://127.0.0.1:8765/live`.
 
+## Checklist de mise en route (PC RTX 3060)
+
+1. `pytest tests` — 56 tests : physique 1.8.9, combat, match, backends, PPO, daemon
+2. `python -m sim.verify` — équivalence sim_ref ↔ kernel CUDA (tol 1e-6)
+3. `python -m sim.bench` — viser > 1 M agent-steps/s
+4. Build du mod (`mod/README.md`), lancer Minecraft, toucher `J` sur sol plat
+   → `python tools/golden_compare.py <trace.jsonl>` : sim_ref fidèle au vrai client
+5. `python -m train.run --config train/configs/boxing.json` — premier entraînement
+6. `python -m train.export runs/boxing/latest.pt --out models/judas.pts`
+7. `python -m serve.daemon` + app Electron (`cd app && npm run dev`)
+8. In-game : page Live → charger le modèle → armer → touche `K`
+
 ## Documentation
 
 - Spec design : [`docs/specs/2026-06-09-judas-design.md`](docs/specs/2026-06-09-judas-design.md)
+- Mod Forge & protocole : [`mod/README.md`](mod/README.md)

@@ -18,7 +18,6 @@ tant que la touche est tenue), comportement standard des clients PvP 1.8.9.
 from collections import deque
 from dataclasses import dataclass
 
-from . import constants as C
 from .combat import apply_entity_collision, try_attack
 from .config import BoxingConfig
 from .physics import living_update_movement

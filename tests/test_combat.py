@@ -1,6 +1,5 @@
 """Tests du combat 1.8.9 : reach, knockback, hurtResistantTime, CPS."""
 
-import math
 
 from sim_ref import PlayerState
 from sim_ref.combat import can_hit, try_attack

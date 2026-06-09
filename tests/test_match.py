@@ -3,7 +3,7 @@
 from sim_ref import Action, BoxingConfig, HumanizationConfig
 from sim_ref.match import BoxingMatch
 
-from helpers import aim_action, free_humanization, make_match
+from helpers import aim_action, make_match
 
 
 def test_spawn_face_to_face():

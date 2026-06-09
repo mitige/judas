@@ -23,10 +23,12 @@ def _load_extension():
         from torch.utils.cpp_extension import load
 
         csrc = Path(__file__).parent / "csrc" / "boxing_kernel.cu"
+        # NB: pas de --use_fast_math : la précision double exacte est requise
+        # pour l'équivalence avec sim_ref.
         _ext = load(
             name="judas_boxing",
             sources=[str(csrc)],
-            extra_cuda_cflags=["-O3", "--use_fast_math=false"],
+            extra_cuda_cflags=["-O3"],
             verbose=False,
         )
     return _ext

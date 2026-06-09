@@ -19,7 +19,8 @@ class HumanizationConfig:
     def click_cooldown_ticks(self) -> int:
         if self.max_cps <= 0:
             return 0
-        return max(1, round(20.0 / self.max_cps))
+        # int(x + 0.5) et non round() : même arrondi que le C++ (half away from zero)
+        return max(1, int(20.0 / self.max_cps + 0.5))
 
 
 @dataclass

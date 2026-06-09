@@ -1,0 +1,47 @@
+{
+  "name": "boxing",
+  "total_iters": 10000,
+  "n_envs": 4096,
+  "rollout_ticks": 128,
+  "league_frac": 0.3,
+  "pool_every": 50,
+  "save_every": 25,
+  "seed": 0,
+  "sim": {
+    "arena_size_x": 18.0,
+    "arena_size_z": 18.0,
+    "target_hits": 100,
+    "max_ticks": 6000,
+    "speed_amplifier": 1,
+    "cps_min": 8.0,
+    "cps_max": 16.0,
+    "rot_speed_min": 20.0,
+    "rot_speed_max": 60.0,
+    "delay_min": 0,
+    "delay_max": 3,
+    "spawn_jitter": 2.0,
+    "reward_hit": 1.0,
+    "reward_hurt": -1.0,
+    "reward_win": 10.0,
+    "reward_dist": 0.002,
+    "randomize": true
+  },
+  "policy": {
+    "history": 16,
+    "d_model": 128,
+    "n_heads": 4,
+    "n_layers": 2
+  },
+  "ppo": {
+    "lr": 0.0003,
+    "gamma": 0.995,
+    "lam": 0.95,
+    "clip": 0.2,
+    "epochs": 3,
+    "minibatch_size": 16384,
+    "ent_coef": 0.005,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "amp": true
+  }
+}

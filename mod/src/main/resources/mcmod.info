@@ -1,0 +1,11 @@
+[
+  {
+    "modid": "judasbridge",
+    "name": "Judas Bridge",
+    "description": "Pont etat/actions entre Minecraft 1.8.9 et le framework Judas (IA PvP boxing).",
+    "version": "${version}",
+    "mcversion": "1.8.9",
+    "authorList": ["judas"],
+    "credits": ""
+  }
+]

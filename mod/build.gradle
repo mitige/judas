@@ -1,0 +1,45 @@
+// judas-bridge — mod Forge 1.8.9
+// Toolchain moderne pour 1.8.9 : essential loom + architectury pack200
+// (Gradle 8, JDK 8+ pour compiler, mappings MCP stable_22)
+
+plugins {
+    id "dev.architectury.architectury-pack200" version "0.1.3"
+    id "gg.essential.loom" version "0.10.0.+"
+    id "java"
+}
+
+version = "0.1.0"
+group = "dev.judas"
+archivesBaseName = "judas-bridge"
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(8)
+
+loom {
+    log4jConfigs.from(file("log4j2.xml"))
+    launchConfigs {
+        client {
+            property "fml.coreMods.load", ""
+            property "mixin.debug.verbose", "false"
+        }
+    }
+    forge {
+        pack200Provider = new dev.architectury.pack200.java.Pack200Adapter()
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.8.9"
+    mappings "de.oceanlabs.mcp:mcp_stable:22-1.8.9"
+    forge "net.minecraftforge:forge:1.8.9-11.15.1.2318-1.8.9"
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("mcmod.info") {
+        expand "version": project.version
+    }
+}

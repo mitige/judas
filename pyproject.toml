@@ -1,0 +1,31 @@
+[project]
+name = "judas"
+version = "0.1.0"
+description = "Judas - framework d'IA Minecraft 1.8.9 PvP boxing : simulateur CUDA exact, PPO self-play, deploiement Forge"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "torch>=2.2",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "websockets>=12.0",
+    "tensorboard>=2.16",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-xdist>=3.5",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["sim", "sim_ref", "train", "serve"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

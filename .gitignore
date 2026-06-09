@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Torch / training
+runs/
+checkpoints/
+*.pt
+*.pts
+*.onnx
+
+# Node / Electron
+node_modules/
+app/dist/
+app/out/
+app/release/
+
+# Java / Forge
+mod/build/
+mod/.gradle/
+mod/run/
+mod/eclipse/
+
+# CUDA build cache
+sim/.torch_ext_cache/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.log

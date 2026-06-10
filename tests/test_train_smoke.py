@@ -141,6 +141,7 @@ def test_ramp_staggered_and_adaptive(tiny_trainer):
     t = tiny_trainer
     t.cfg["shaping_decay_iters"] = 10
     t._ramp_on = True
+    t._shaping_base = 0.002      # TINY ne configure pas le shaping (défaut 0)
 
     for _ in range(5):                     # combat sain -> pos 0.5
         t._update_ramp(10.0)

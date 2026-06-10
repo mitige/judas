@@ -24,6 +24,7 @@ import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from .arena import ArenaSession
 from .live import LiveSession
 from .protocol import ArenaCalib
 from .training_manager import TrainingManager
@@ -34,7 +35,10 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
 
 training = TrainingManager()
 live = LiveSession()
+arena = ArenaSession()
 _event_clients: set = set()
+_arena_clients: set = set()
+_arena_task = None
 
 
 def _gpu_status() -> dict:
@@ -112,6 +116,69 @@ def live_kill():
     live.params.enabled = False
     live.reset()
     return live.status()
+
+
+# ------------------------------------------------------------------ arène viz
+@app.get("/arena/status")
+def arena_status():
+    return arena.status()
+
+
+@app.post("/arena/load")
+async def arena_load(body: dict):
+    arena.running = False
+    return arena.load(
+        body["model_a"], body["model_b"],
+        cps=float(body.get("cps", 12.0)),
+        rot_speed=float(body.get("rot_speed", 40.0)),
+        arena_size=float(body.get("arena_size", 18.0)),
+        target_hits=int(body.get("target_hits", 100)),
+        sample=bool(body.get("sample", True)),
+    )
+
+
+@app.post("/arena/control")
+async def arena_control(body: dict):
+    global _arena_task
+    if "speed" in body:
+        arena.speed = max(0.25, min(16.0, float(body["speed"])))
+    if "sample" in body:
+        arena.sample = bool(body["sample"])
+    if body.get("reset"):
+        arena.reset()
+    if "running" in body:
+        arena.running = bool(body["running"]) and arena.ready
+        if arena.running and (_arena_task is None or _arena_task.done()):
+            _arena_task = asyncio.create_task(_arena_loop())
+    return arena.status()
+
+
+async def _arena_loop():
+    """Boucle de match : step à 20 TPS x vitesse, broadcast aux clients viz."""
+    while arena.running and arena.ready:
+        state = arena.step()
+        msg = json.dumps(state)
+        for ws in list(_arena_clients):
+            try:
+                await ws.send_text(msg)
+            except Exception:
+                _arena_clients.discard(ws)
+        await asyncio.sleep(1.0 / (20.0 * arena.speed))
+
+
+@app.websocket("/arena")
+async def ws_arena(ws: WebSocket):
+    """Flux d'états de match pour le visualiseur 3D."""
+    await ws.accept()
+    _arena_clients.add(ws)
+    try:
+        await ws.send_text(json.dumps({"t": "status", **arena.status()}))
+        while True:
+            await ws.receive_text()        # détecte la déconnexion
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _arena_clients.discard(ws)
 
 
 # ----------------------------------------------------------------- WebSockets

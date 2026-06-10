@@ -17,6 +17,7 @@ judas/
 ├── serve/      Daemon FastAPI + WebSocket : orchestre training et inférence temps réel
 ├── mod/        Mod Forge 1.8.9 (Java 8) : capteurs d'état + injection d'inputs
 ├── app/        App Electron "Judas" - contrôle total (dashboard, training, live)
+├── viz/        App Electron "Judas Arène" - visualiseur 3D de matchs IA vs IA
 └── tests/      Tests unitaires physique + équivalence sim_ref <-> CUDA
 ```
 
@@ -62,9 +63,23 @@ python -m train.run --config train/configs/boxing.json
 :: 4. Lancer le daemon (training + inférence pilotés par l'app)
 python -m serve.daemon
 
-:: 5. Lancer l'app Electron
+:: 5. Lancer l'app Electron de contrôle
 cd app && npm install && npm run dev
+
+:: 6. Visualiser un checkpoint contre un autre (sans Minecraft)
+cd viz && npm install && npm run dev
 ```
+
+## Judas Arène (viz/)
+
+Visualiseur 3D type RocketSimVis : deux checkpoints s'affrontent dans le
+simulateur, rendu temps réel (Three.js) avec interpolation, traînées,
+anneaux d'impact, score et stats de session. Nécessite le daemon
+(`python -m serve.daemon`). Sélectionner modèle A / modèle B (checkpoint
+`.pt` échantillonnable ou export `.pts` déterministe), charger, lancer —
+vitesse ×0.25 à ×16. Astuce : deux checkpoints identiques en mode
+déterministe produisent un miroir parfait ; laisser « échantillonner »
+activé pour des matchs variés.
 
 ## Mod Forge
 

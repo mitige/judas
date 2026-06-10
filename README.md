@@ -53,9 +53,12 @@ lancer depuis un terminal "x64 Native Tools Command Prompt" pour que MSVC soit v
 :: 1. Vérifier la physique de référence
 pytest tests
 
-:: 2. Vérifier l'équivalence sim_ref <-> CUDA + benchmark
+:: 2. Vérifier l'équivalence sim_ref <-> CUDA (build double) + benchmark (build float32)
 python -m sim.verify
 python -m sim.bench
+
+:: Précision : float32 par défaut (vitesse max — le FP64 GPU est ~32x plus lent).
+:: JUDAS_PRECISION=double pour forcer la double exacte partout.
 
 :: 3. Lancer un entraînement
 python -m train.run --config train/configs/boxing.json

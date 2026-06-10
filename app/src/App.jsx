@@ -8,8 +8,8 @@ import Training from "./pages/Training.jsx";
 
 const PAGES = [
   { id: "dashboard", label: "Dashboard" },
-  { id: "training", label: "Entraînement" },
-  { id: "models", label: "Modèles" },
+  { id: "training", label: "Training" },
+  { id: "models", label: "Models" },
   { id: "live", label: "Live" },
 ];
 
@@ -59,15 +59,15 @@ export default function App() {
           <div className="foot">
             <div className="statusline">
               <span className={"beacon" + (connected ? " on" : " warn")} />
-              {connected ? "daemon connecté" : "daemon hors ligne"}
+              {connected ? "daemon online" : "daemon offline"}
             </div>
             <div className="statusline">
               <span className={"beacon" + (status?.gpu?.available ? " on" : "")} />
-              {status?.gpu?.available ? status.gpu.name : "GPU absent"}
+              {status?.gpu?.available ? status.gpu.name : "no gpu"}
             </div>
             <div className="statusline">
               <span className={"beacon" + (status?.training?.running ? " on" : "")} />
-              {status?.training?.running ? "entraînement actif" : "entraînement arrêté"}
+              {status?.training?.running ? "training" : "idle"}
             </div>
           </div>
         </aside>

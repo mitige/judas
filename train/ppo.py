@@ -46,8 +46,9 @@ class PPO:
         adv_all = buf.adv[t_all, b_all]
         adv_mean, adv_std = adv_all.mean(), adv_all.std().clamp_min(1e-6)
 
-        stats = {"loss_pi": 0.0, "loss_v": 0.0, "entropy": 0.0,
-                 "clip_frac": 0.0, "approx_kl": 0.0}
+        # stats accumulées sur GPU : une seule synchro à la fin de l'update
+        acc = {k: torch.zeros((), device=self.device)
+               for k in ("loss_pi", "loss_v", "entropy", "clip_frac", "approx_kl")}
         n_updates = 0
 
         for _ in range(cfg.epochs):
@@ -81,13 +82,12 @@ class PPO:
                 self.scaler.update()
 
                 with torch.no_grad():
-                    stats["loss_pi"] += loss_pi.item()
-                    stats["loss_v"] += loss_v.item()
-                    stats["entropy"] += entropy.mean().item()
-                    stats["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean().item()
-                    stats["approx_kl"] += (old_logp - logp).mean().item()
+                    acc["loss_pi"] += loss_pi.detach()
+                    acc["loss_v"] += loss_v.detach()
+                    acc["entropy"] += entropy.mean().detach()
+                    acc["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean()
+                    acc["approx_kl"] += (old_logp - logp).mean().detach()
                 n_updates += 1
 
-        for k in stats:
-            stats[k] /= max(n_updates, 1)
-        return stats
+        d = max(n_updates, 1)
+        return {k: float(v.item()) / d for k, v in acc.items()}

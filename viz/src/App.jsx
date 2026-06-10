@@ -88,7 +88,7 @@ export default function App() {
               <div className="num a">{String(score[0]).padStart(2, "0")}</div>
               <div className="who">{names[0] ?? "—"}</div>
             </div>
-            <div className="vs">contre</div>
+            <div className="vs">vs</div>
             <div>
               <div className="num b">{String(score[1]).padStart(2, "0")}</div>
               <div className="who">{names[1] ?? "—"}</div>
@@ -97,20 +97,20 @@ export default function App() {
 
           <div className="hud-foot">
             <span className={connected ? "on" : ""}>
-              {connected ? "● flux connecté" : "○ daemon hors ligne"}
+              {connected ? "● connected" : "○ daemon offline"}
             </span>
             <span>tick {hud?.tick ?? "—"}</span>
             <span>{hud?.step_ms != null ? `${hud.step_ms} ms/step` : ""}</span>
-            <span>{running ? `vitesse ×${hud?.speed ?? speed}` : "en pause"}</span>
+            <span>{running ? `×${hud?.speed ?? speed}` : "paused"}</span>
           </div>
 
           {victory && (
             <div className="hud-victory">
               <div className={"word " + (victory.winner === 0 ? "a" : victory.winner === 1 ? "b" : "d")}>
-                {victory.winner === -1 ? "Égalité" : "Victoire"}
+                {victory.winner === -1 ? "Draw" : "Victory"}
               </div>
               <div className="detail">
-                {victory.winner === 0 ? names[0] : victory.winner === 1 ? names[1] : "aucun vainqueur"}
+                {victory.winner === 0 ? names[0] : victory.winner === 1 ? names[1] : "no winner"}
               </div>
             </div>
           )}
@@ -121,22 +121,22 @@ export default function App() {
           <div className="vbrand">
             <span className="orbit" />
             <h1>Judas</h1>
-            <span className="sub">arène</span>
+            <span className="sub">arena</span>
           </div>
 
           <div className="panel">
-            <div className="label">combattants</div>
+            <div className="label">fighters</div>
             <div className="field" style={{ marginBottom: 10 }}>
-              <label style={{ color: "var(--ice)" }}>modèle A</label>
+              <label style={{ color: "var(--ice)" }}>model A</label>
               <select value={sel.a} onChange={(e) => setSel({ ...sel, a: e.target.value })}>
-                {models.length === 0 && <option value="">— aucun modèle —</option>}
+                {models.length === 0 && <option value="">—</option>}
                 {models.map((m) => <option key={"a" + m.path} value={m.path}>{m.label}</option>)}
               </select>
             </div>
             <div className="field">
-              <label style={{ color: "var(--ember)" }}>modèle B</label>
+              <label style={{ color: "var(--ember)" }}>model B</label>
               <select value={sel.b} onChange={(e) => setSel({ ...sel, b: e.target.value })}>
-                {models.length === 0 && <option value="">— aucun modèle —</option>}
+                {models.length === 0 && <option value="">—</option>}
                 {models.map((m) => <option key={"b" + m.path} value={m.path}>{m.label}</option>)}
               </select>
             </div>
@@ -146,21 +146,21 @@ export default function App() {
                      onChange={(e) => setParams({ ...params, cps: e.target.value })} />
               <Field label="rotation °/t" value={params.rot}
                      onChange={(e) => setParams({ ...params, rot: e.target.value })} />
-              <Field label="arène" value={params.arena}
+              <Field label="arena" value={params.arena}
                      onChange={(e) => setParams({ ...params, arena: e.target.value })} />
-              <Field label="hits cible" value={params.target}
+              <Field label="target hits" value={params.target}
                      onChange={(e) => setParams({ ...params, target: e.target.value })} />
             </div>
             <hr className="sep" />
             <label className="toggle">
               <input type="checkbox" checked={params.sample}
                      onChange={(e) => setParams({ ...params, sample: e.target.checked })} />
-              échantillonner (sinon déterministe)
+              sample actions
             </label>
             <hr className="sep" />
             <div className="controls-row">
               <button className="btn" onClick={load} disabled={!sel.a || !sel.b}>
-                charger
+                load
               </button>
               <button className="btn ghost" onClick={refreshModels}>↻</button>
               {err && <span className="tag" style={{ color: "var(--ember)" }}>{err}</span>}
@@ -172,16 +172,16 @@ export default function App() {
             <div className="controls-row" style={{ marginBottom: 14 }}>
               <button className="btn" onClick={() => control({ running: !running })}
                       disabled={!(status?.ready)}>
-                {running ? "❚❚ pause" : "▶ lancer"}
+                {running ? "❚❚ pause" : "▶ play"}
               </button>
               <button className="btn ghost" onClick={() => control({ reset: true })}
                       disabled={!(status?.ready)}>
-                réinitialiser
+                reset
               </button>
             </div>
             <div className="slider">
               <div className="row">
-                <span className="field"><label>vitesse</label></span>
+                <span className="field"><label>speed</label></span>
                 <span className="val">×{speed}</span>
               </div>
               <input type="range" min={0.25} max={16} step={0.25} value={speed}
@@ -190,17 +190,17 @@ export default function App() {
           </div>
 
           <div className="panel">
-            <div className="label">score · premier à {target}</div>
+            <div className="label">score · first to {target}</div>
             <ScoreBar label={names[0] ?? "A"} cls="a" value={score[0]} max={target} />
             <ScoreBar label={names[1] ?? "B"} cls="b" value={score[1]} max={target} />
           </div>
 
           <div className="panel">
             <div className="label">session</div>
-            <Kv k="matchs joués" v={hud?.matches ?? status?.matches ?? 0} />
-            <Kv k="victoires A" v={(hud?.wins ?? status?.wins ?? [0, 0])[0]} hl />
-            <Kv k="victoires B" v={(hud?.wins ?? status?.wins ?? [0, 0])[1]} />
-            <Kv k="égalités" v={hud?.draws ?? status?.draws ?? 0} />
+            <Kv k="matches" v={hud?.matches ?? status?.matches ?? 0} />
+            <Kv k="wins A" v={(hud?.wins ?? status?.wins ?? [0, 0])[0]} hl />
+            <Kv k="wins B" v={(hud?.wins ?? status?.wins ?? [0, 0])[1]} />
+            <Kv k="draws" v={hud?.draws ?? status?.draws ?? 0} />
           </div>
         </aside>
       </div>

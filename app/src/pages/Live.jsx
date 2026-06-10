@@ -6,7 +6,8 @@ export default function Live({ status }) {
   const [model, setModel] = useState("");
   const [cps, setCps] = useState(12);
   const [rot, setRot] = useState(40);
-  const [arena, setArena] = useState({ origin_x: 0, origin_z: 0, size_x: 18, size_z: 18, floor_y: 0 });
+  const [arena, setArena] = useState({ origin_x: 0, origin_z: 0,
+                                       size_x: 18, size_z: 18, floor_y: 0 });
   const live = status?.live;
 
   useEffect(() => {
@@ -16,7 +17,6 @@ export default function Live({ status }) {
     }).catch(() => {});
   }, []);
 
-  // humanisation à chaud (débouncée)
   useEffect(() => {
     const id = setTimeout(() => {
       api.liveParams({ max_cps: +cps, max_rot_speed: +rot }).catch(() => {});
@@ -31,20 +31,16 @@ export default function Live({ status }) {
 
   return (
     <>
-      <div className="eyebrow">déploiement in-game · forge 1.8.9</div>
-      <h2 className="title">Mise en <em>orbite</em></h2>
-      <p className="subtitle">
-        Connexion du mod : ws://127.0.0.1:8765/live — touche K in-game pour
-        activer le bot, L pour tout couper.
-      </p>
+      <h2 className="title">Live</h2>
+      <div style={{ height: 24 }} />
 
       <div className="grid cols-2">
         <div className="panel">
-          <div className="label">modèle</div>
+          <div className="label">model</div>
           <div className="field">
             <label>torchscript</label>
             <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {models.length === 0 && <option value="">— aucun export —</option>}
+              {models.length === 0 && <option value="">—</option>}
               {models.map((m) => (
                 <option key={m.path} value={m.path}>{m.name}</option>
               ))}
@@ -52,30 +48,30 @@ export default function Live({ status }) {
           </div>
           <hr className="sep" />
           <div className="controls-row">
-            <button className="btn" onClick={load} disabled={!model}>charger</button>
-            <button className="btn" onClick={arm}>armer</button>
-            <button className="btn danger" onClick={kill}>KILL</button>
+            <button className="btn" onClick={load} disabled={!model}>load</button>
+            <button className="btn" onClick={arm}>arm</button>
+            <button className="btn danger" onClick={kill}>kill</button>
           </div>
           <hr className="sep" />
-          <Kv k="chargé" v={live?.model?.split(/[\\/]/).pop() ?? "—"} hl={!!live?.model} />
-          <Kv k="armé" v={live?.enabled ? "oui" : "non"} hl={live?.enabled} />
-          <Kv k="latence inférence" v={live?.latency_ms != null ? `${live.latency_ms} ms` : "—"} />
-          <Kv k="ticks traités" v={live?.tick ?? "—"} />
+          <Kv k="loaded" v={live?.model?.split(/[\\/]/).pop() ?? "—"} hl={!!live?.model} />
+          <Kv k="armed" v={live?.enabled ? "yes" : "no"} hl={live?.enabled} />
+          <Kv k="latency" v={live?.latency_ms != null ? `${live.latency_ms} ms` : "—"} />
+          <Kv k="ticks" v={live?.tick ?? "—"} />
           <Kv k="device" v={live?.device ?? "—"} />
         </div>
 
         <div className="panel">
-          <div className="label">humanisation (temps réel)</div>
-          <Slider label="CPS max" val={cps} set={setCps} min={1} max={20} unit="clics/s" />
-          <Slider label="Rotation max" val={rot} set={setRot} min={5} max={180} unit="°/tick" />
+          <div className="label">humanization · realtime</div>
+          <Slider l="cps" v={cps} set={setCps} min={1} max={20} />
+          <Slider l="rotation °/t" v={rot} set={setRot} min={5} max={180} />
           <hr className="sep" />
-          <div className="label">calibration arène</div>
+          <div className="label">arena</div>
           <div className="grid cols-2">
-            <Field label="origine X" value={arena.origin_x} onChange={setA("origin_x")} />
-            <Field label="origine Z" value={arena.origin_z} onChange={setA("origin_z")} />
-            <Field label="taille X" value={arena.size_x} onChange={setA("size_x")} />
-            <Field label="taille Z" value={arena.size_z} onChange={setA("size_z")} />
-            <Field label="sol Y" value={arena.floor_y} onChange={setA("floor_y")} />
+            <Field l="origin x" v={arena.origin_x} on={setA("origin_x")} />
+            <Field l="origin z" v={arena.origin_z} on={setA("origin_z")} />
+            <Field l="size x" v={arena.size_x} on={setA("size_x")} />
+            <Field l="size z" v={arena.size_z} on={setA("size_z")} />
+            <Field l="floor y" v={arena.floor_y} on={setA("floor_y")} />
           </div>
         </div>
       </div>
@@ -83,24 +79,24 @@ export default function Live({ status }) {
   );
 }
 
-function Slider({ label, val, set, min, max, unit }) {
+function Slider({ l, v, set, min, max }) {
   return (
     <div className="slider" style={{ marginBottom: 16 }}>
       <div className="row">
-        <span className="field"><label>{label}</label></span>
-        <span className="val">{val} <small style={{ color: "var(--ink-faint)" }}>{unit}</small></span>
+        <span className="field"><label>{l}</label></span>
+        <span className="val">{v}</span>
       </div>
-      <input type="range" min={min} max={max} value={val}
+      <input type="range" min={min} max={max} value={v}
              onChange={(e) => set(+e.target.value)} />
     </div>
   );
 }
 
-function Field({ label, value, onChange }) {
+function Field({ l, v, on }) {
   return (
     <div className="field">
-      <label>{label}</label>
-      <input type="number" value={value} onChange={onChange} />
+      <label>{l}</label>
+      <input type="number" value={v} onChange={on} />
     </div>
   );
 }

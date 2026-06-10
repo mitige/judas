@@ -3,44 +3,57 @@
 API identique à sim.ref_backend.JudasSimRef mais sur GPU :
 des dizaines de milliers de matchs simulés en parallèle, tenseurs torch
 restant sur le device (zéro copie pendant l'entraînement).
+
+Précision :
+  - "float"  (défaut) : physique en float32 — vitesse maximale (le FP64 des
+    GPU grand public est ~32x plus lent). C'est le mode entraînement.
+  - "double" : physique en double exacte — utilisé par sim.verify et
+    tests/test_equivalence.py pour la comparaison stricte avec sim_ref.
+Variable d'env JUDAS_PRECISION=double pour forcer globalement.
 """
+
+import os
 
 import torch
 
 from .config import ACTION_DIM, MAX_ACTION_DELAY, SimConfig
 from .obs import OBS_DIM
 
-_ext = None
+_ext_cache: dict = {}
 
 
-def _load_extension():
+def _load_extension(precision: str):
     """Compile (JIT) et charge l'extension CUDA. Sous Windows, lancer depuis
     un 'x64 Native Tools Command Prompt' pour que MSVC soit dans le PATH."""
-    global _ext
-    if _ext is None:
+    if precision not in _ext_cache:
         from pathlib import Path
 
         from torch.utils.cpp_extension import load
 
         csrc = Path(__file__).parent / "csrc" / "boxing_kernel.cu"
-        # NB: pas de --use_fast_math : la précision double exacte est requise
-        # pour l'équivalence avec sim_ref.
-        _ext = load(
-            name="judas_boxing",
+        flags = ["-O3"]
+        if precision == "double":
+            flags.append("-DJUDAS_DOUBLE")
+        _ext_cache[precision] = load(
+            name=f"judas_boxing_{precision}",
             sources=[str(csrc)],
-            extra_cuda_cflags=["-O3"],
+            extra_cuda_cflags=flags,
+            extra_cflags=["-DJUDAS_DOUBLE"] if precision == "double" else [],
             verbose=False,
         )
-    return _ext
+    return _ext_cache[precision]
 
 
 class JudasSim:
     def __init__(self, n_envs: int, cfg: SimConfig | None = None,
-                 device: str = "cuda", seed: int = 0):
+                 device: str = "cuda", seed: int = 0,
+                 precision: str | None = None):
         if not torch.cuda.is_available():
             raise RuntimeError(
                 "CUDA indisponible. Utiliser sim.ref_backend.JudasSimRef sur CPU.")
-        self.ext = _load_extension()
+        self.precision = precision or os.environ.get("JUDAS_PRECISION", "float")
+        assert self.precision in ("float", "double")
+        self.ext = _load_extension(self.precision)
         self.n_envs = n_envs
         self.cfg = cfg or SimConfig()
         self.device = torch.device(device)
@@ -49,7 +62,8 @@ class JudasSim:
 
         N = n_envs
         dev = self.device
-        self._pos = torch.zeros((N, 2, 8), dtype=torch.float64, device=dev)
+        real_dtype = torch.float64 if self.precision == "double" else torch.float32
+        self._pos = torch.zeros((N, 2, 8), dtype=real_dtype, device=dev)
         self._ints = torch.zeros((N, 2, 8), dtype=torch.int32, device=dev)
         self._human = torch.zeros((N, 2, 2), dtype=torch.float32, device=dev)
         self._tick = torch.zeros((N,), dtype=torch.int32, device=dev)

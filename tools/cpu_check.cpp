@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
     pr.randomize = (float)pv[16];
 
     // état (mêmes layouts que les tenseurs du wrapper Python)
-    std::vector<double> pos((size_t)n_envs * 2 * 8, 0.0);
+    std::vector<jreal> pos((size_t)n_envs * 2 * 8, (jreal)0.0);
     std::vector<int> ints((size_t)n_envs * 2 * 8, 0);
     std::vector<float> human((size_t)n_envs * 2 * 2, 0.0f);
     std::vector<int> tick(n_envs, 0);

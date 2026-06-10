@@ -43,7 +43,7 @@ def main():
     from .judas_sim import JudasSim
 
     cfg = SimConfig(randomize=False, target_hits=20, max_ticks=600)
-    gpu = JudasSim(args.envs, cfg, seed=0)
+    gpu = JudasSim(args.envs, cfg, seed=0, precision="double")
     cpu = JudasSimRef(args.envs, cfg, seed=0)
 
     obs_g = gpu.reset().cpu().numpy()

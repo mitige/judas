@@ -46,6 +46,11 @@ class Trainer:
         torch.manual_seed(self.cfg["seed"])
         np.random.seed(self.cfg["seed"])
 
+        # Ampere+ : TF32 pour les matmuls (gros gain, précision suffisante en RL)
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")
+
         self.device = torch.device(
             device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.N = self.cfg["n_envs"]
@@ -61,6 +66,9 @@ class Trainer:
         self.policy = JudasPolicy(self.pol_cfg).to(self.device)
         self.ppo = PPO(self.policy, PPOConfig(**self.cfg.get("ppo", {})), self.device)
         self.league = League()
+        # inférence de rollout en fp16 (l'update PPO garde sa propre AMP)
+        self._use_amp = self.ppo.use_amp
+        self._buf = RolloutBuffer(self.T, self.B, OBS_DIM, self.H, self.device)
 
         self.hist = torch.zeros(self.B, self.H, OBS_DIM, device=self.device)
         # -1 : le premier _push_obs (reset) donne l'âge 0 à l'obs de spawn
@@ -152,21 +160,25 @@ class Trainer:
             logp = torch.zeros(self.B, device=self.device)
             value = torch.zeros(self.B, device=self.device)
 
-            out = self.policy.act(self.hist[learner_mask])
-            for k in ("pre", "fwd", "strafe", "bins"):
-                raw[k][learner_mask] = out[k] if k != "fwd" and k != "strafe" \
-                    else out[k].long()
-            logp[learner_mask] = out["logp"]
-            value[learner_mask] = out["value"]
+            with torch.autocast("cuda", dtype=torch.float16, enabled=self._use_amp):
+                out = self.policy.act(self.hist[learner_mask])
+            raw["pre"][learner_mask] = out["pre"].float()
+            raw["bins"][learner_mask] = out["bins"].float()
+            raw["fwd"][learner_mask] = out["fwd"].long()
+            raw["strafe"][learner_mask] = out["strafe"].long()
+            logp[learner_mask] = out["logp"].float()
+            value[learner_mask] = out["value"].float()
 
             for gi, m in enumerate(self._opp_models):
                 envs = torch.nonzero(self._env_opp == gi, as_tuple=False).squeeze(-1)
                 if envs.numel() == 0:
                     continue
                 agents = envs * 2 + 1
-                o = m.act(self.hist[agents])
-                for k in ("pre", "bins"):
-                    raw[k][agents] = o[k]
+                with torch.autocast("cuda", dtype=torch.float16,
+                                    enabled=self._use_amp):
+                    o = m.act(self.hist[agents])
+                raw["pre"][agents] = o["pre"].float()
+                raw["bins"][agents] = o["bins"].float()
                 raw["fwd"][agents] = o["fwd"].long()
                 raw["strafe"][agents] = o["strafe"].long()
 
@@ -197,13 +209,15 @@ class Trainer:
     def train_iter(self) -> dict:
         t0 = time.perf_counter()
         learner_mask = self._assign_opponents()
-        buf = RolloutBuffer(self.T, self.B, OBS_DIM, self.H, self.device)
+        buf = self._buf
+        buf.reset()
         ep = self._collect(buf, learner_mask)
 
         with torch.no_grad():
             last_value = torch.zeros(self.B, device=self.device)
-            out = self.policy.act(self.hist[learner_mask])
-            last_value[learner_mask] = out["value"]
+            with torch.autocast("cuda", dtype=torch.float16, enabled=self._use_amp):
+                out = self.policy.act(self.hist[learner_mask])
+            last_value[learner_mask] = out["value"].float()
 
         stats = self.ppo.update(buf, learner_mask, last_value)
 

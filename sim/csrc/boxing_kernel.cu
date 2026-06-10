@@ -47,8 +47,11 @@ static StatePtrs ptrs_from_tensors(torch::Tensor pos, torch::Tensor ints,
                                    torch::Tensor human, torch::Tensor tick,
                                    torch::Tensor queue, torch::Tensor last_act,
                                    torch::Tensor rng) {
+    TORCH_CHECK(pos.scalar_type() == (sizeof(jreal) == 8 ? torch::kFloat64
+                                                         : torch::kFloat32),
+                "dtype de pos incompatible avec la precision du build");
     StatePtrs S;
-    S.pos = pos.data_ptr<double>();
+    S.pos = pos.data_ptr<jreal>();
     S.ints = ints.data_ptr<int>();
     S.human = human.data_ptr<float>();
     S.tick = tick.data_ptr<int>();

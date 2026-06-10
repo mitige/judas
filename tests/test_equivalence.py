@@ -24,7 +24,7 @@ def test_cuda_matches_reference():
     from sim.judas_sim import JudasSim
 
     cfg = SimConfig(randomize=False, target_hits=15, max_ticks=300)
-    gpu = JudasSim(N_ENVS, cfg, seed=0)
+    gpu = JudasSim(N_ENVS, cfg, seed=0, precision="double")
     cpu = JudasSimRef(N_ENVS, cfg, seed=0)
 
     np.testing.assert_allclose(gpu.reset().cpu().numpy(), cpu.reset(), atol=ATOL)

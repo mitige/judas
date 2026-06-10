@@ -11,7 +11,8 @@ export default function Models() {
   const doExport = async (run, ckpt) => {
     setBusy(ckpt);
     try {
-      await api.exportModel(`runs/${run}/${ckpt}`, `models/${run}-${ckpt.replace(".pt", "")}.pts`);
+      await api.exportModel(`runs/${run}/${ckpt}`,
+                            `models/${run}-${ckpt.replace(".pt", "")}.pts`);
       refresh();
     } catch {}
     setBusy(null);
@@ -19,21 +20,19 @@ export default function Models() {
 
   return (
     <>
-      <div className="eyebrow">checkpoints · torchscript</div>
-      <h2 className="title">Constellation de <em>modèles</em></h2>
-      <p className="subtitle">
-        Checkpoints d&apos;entraînement et modèles exportés prêts pour le live.
-      </p>
+      <h2 className="title">Models</h2>
+      <div style={{ height: 24 }} />
 
       <div className="panel">
         <div className="label">runs</div>
-        {data.runs.length === 0 && <div className="empty">aucun run pour l&apos;instant</div>}
+        {data.runs.length === 0 && <div className="empty">no runs</div>}
         {data.runs.map((r) => (
           <div key={r.name}>
             <div className="kv">
               <span className="k">{r.name}</span>
               <span className="v hl">
-                {r.last_metrics ? `elo ${r.last_metrics.elo} · iter ${r.last_metrics.iter}` : ""}
+                {r.last_metrics
+                  ? `elo ${r.last_metrics.elo} · iter ${r.last_metrics.iter}` : ""}
               </span>
             </div>
             <table className="list">
@@ -44,7 +43,7 @@ export default function Models() {
                     <td style={{ textAlign: "right" }}>
                       <button className="btn ghost" disabled={busy === c}
                               onClick={() => doExport(r.name, c)}>
-                        {busy === c ? "export…" : "exporter"}
+                        {busy === c ? "…" : "export"}
                       </button>
                     </td>
                   </tr>
@@ -57,12 +56,12 @@ export default function Models() {
       </div>
 
       <div className="panel">
-        <div className="label">modèles exportés</div>
-        {data.exported.length === 0 && <div className="empty">aucun export</div>}
+        <div className="label">exported</div>
+        {data.exported.length === 0 && <div className="empty">no exports</div>}
         {data.exported.length > 0 && (
           <table className="list">
             <thead>
-              <tr><th>nom</th><th>historique</th><th>itération</th><th>chemin</th></tr>
+              <tr><th>name</th><th>history</th><th>iter</th><th>path</th></tr>
             </thead>
             <tbody>
               {data.exported.map((m) => (

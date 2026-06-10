@@ -91,7 +91,8 @@ class Trainer:
 
         # automatisations
         self._shaping_base = self.sim_cfg.reward_dist
-        self._ramp_start: int | None = None       # début de la rampe combat
+        self._ramp_on = False        # rampe déclenchée (combat régulier atteint)
+        self._ramp_pos = 0.0         # position 0..1 — adaptative, peut reculer
         self._hit_streak = 0
         self._entropy_hist: list[float] = []
         self._eval_sim = None
@@ -327,6 +328,7 @@ class Trainer:
             "hit_rate": round(hit_rate, 2),
             "shaping": round(shaping, 6),
             "spawn_gap": round(spawn_gap, 2),
+            "ramp": round(self._ramp_pos, 3),
             "warn_entropy": warn_entropy,
             **{k: round(v, 4) for k, v in evals.items()},
             **{k: round(v, 5) for k, v in stats.items()},
@@ -339,42 +341,52 @@ class Trainer:
 
     # -------------------------------------------------------- automatisations
     def _update_ramp(self, hit_rate: float) -> None:
-        """Déclenche la rampe (decay shaping + élargissement spawn) quand les
-        agents frappent régulièrement, de façon soutenue."""
-        if self._ramp_start is not None:
+        """Rampe ADAPTATIVE et ÉTAGÉE.
+
+        Étagée  : phase 1 (pos 0 -> 0.5) le spawn s'élargit, shaping intact ;
+                  phase 2 (pos 0.5 -> 1) le shaping décroît vers 0.
+                  (jamais les deux béquilles retirées en même temps)
+        Adaptative : la position avance quand le combat est sain et RECULE
+                  si le hit rate s'effondre — auto-récupération du signal."""
+        thresh = self.cfg["shaping_hit_rate"]
+        if not self._ramp_on:
+            if hit_rate >= thresh:
+                self._hit_streak += 1
+            else:
+                self._hit_streak = 0
+            if self._hit_streak >= 10:
+                self._ramp_on = True
             return
-        if hit_rate >= self.cfg["shaping_hit_rate"]:
-            self._hit_streak += 1
-        else:
-            self._hit_streak = 0
-        if self._hit_streak >= 10:
-            self._ramp_start = self.iter
+        step = 1.0 / max(self.cfg["shaping_decay_iters"], 1)
+        if hit_rate >= thresh:
+            self._ramp_pos = min(self._ramp_pos + step, 1.0)
+        elif hit_rate < 0.5 * thresh:
+            self._ramp_pos = max(self._ramp_pos - 2.0 * step, 0.0)
 
     def _ramp_frac(self) -> float:
-        if self._ramp_start is None:
-            return 0.0
-        return min((self.iter - self._ramp_start)
-                   / max(self.cfg["shaping_decay_iters"], 1), 1.0)
+        return self._ramp_pos
 
     def _auto_shaping(self) -> float:
-        """Shaping de distance -> 0 le long de la rampe."""
+        """Phase 2 de la rampe : shaping plein jusqu'à pos 0.5, puis -> 0."""
         if self._shaping_base <= 0:
             return 0.0
-        value = self._shaping_base * (1.0 - self._ramp_frac())
-        if self._ramp_start is not None:
+        pos = self._ramp_pos
+        factor = 1.0 if pos <= 0.5 else max(1.0 - (pos - 0.5) * 2.0, 0.0)
+        value = self._shaping_base * factor
+        if self._ramp_on:
             self.sim.set_reward_dist(value)
         return value
 
     def _auto_curriculum(self) -> float:
-        """Spawn proche -> distance standard le long de la rampe."""
+        """Phase 1 de la rampe : spawn proche -> standard sur pos 0 -> 0.5."""
         cg = self.cfg["curriculum_gap"]
         if cg <= 0:
             return self.sim_cfg.spawn_gap or self._full_gap
-        frac = self._ramp_frac()
-        gap = cg + (self._full_gap - cg) * frac
-        if self._ramp_start is not None:
-            # frac = 1 -> 0 = mode auto (arène/3), valeur standard exacte
-            self.sim.set_spawn_gap(0.0 if frac >= 1.0 else gap)
+        gphase = min(self._ramp_pos * 2.0, 1.0)
+        gap = cg + (self._full_gap - cg) * gphase
+        if self._ramp_on:
+            # gphase = 1 -> 0 = mode auto (arène/3), valeur standard exacte
+            self.sim.set_spawn_gap(0.0 if gphase >= 1.0 else gap)
         return gap
 
     def _maybe_snapshot(self) -> None:
@@ -473,7 +485,8 @@ class Trainer:
         torch.save({
             "iter": self.iter,
             "total_steps": self.total_steps,
-            "ramp_start": self._ramp_start,
+            "ramp_on": self._ramp_on,
+            "ramp_pos": self._ramp_pos,
             "policy": self.policy.state_dict(),
             "optimizer": self.ppo.opt.state_dict(),
             "league": self.league.state_dict(),
@@ -510,7 +523,14 @@ class Trainer:
         self.league.load_state_dict(ckpt["league"])
         self.iter = ckpt["iter"]
         self.total_steps = ckpt.get("total_steps", 0)
-        self._ramp_start = ckpt.get("ramp_start")
+        if "ramp_pos" in ckpt:
+            self._ramp_on = ckpt["ramp_on"]
+            self._ramp_pos = ckpt["ramp_pos"]
+        elif ckpt.get("ramp_start") is not None:
+            # ancien format (rampe minutée) : reprise adaptative depuis sa position
+            self._ramp_on = True
+            self._ramp_pos = min((self.iter - ckpt["ramp_start"])
+                                 / max(self.cfg["shaping_decay_iters"], 1), 1.0)
 
     def _log(self, metrics: dict) -> None:
         with open(self.run_dir / "metrics.jsonl", "a") as f:

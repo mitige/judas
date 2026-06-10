@@ -135,6 +135,33 @@ def test_bot_opponents_in_league(tmp_path, monkeypatch):
     assert "reward_mean" in m
 
 
+def test_ramp_staggered_and_adaptive(tiny_trainer):
+    """Phase 1 : le spawn s'élargit, le shaping reste plein.
+    Phase 2 : le shaping décroît. Effondrement du hit rate -> la rampe recule."""
+    t = tiny_trainer
+    t.cfg["shaping_decay_iters"] = 10
+    t._ramp_on = True
+
+    for _ in range(5):                     # combat sain -> pos 0.5
+        t._update_ramp(10.0)
+    assert abs(t._ramp_pos - 0.5) < 1e-9
+    assert abs(t._auto_shaping() - t._shaping_base) < 1e-12   # shaping intact
+    assert abs(t._auto_curriculum() - t._full_gap) < 1e-9     # spawn standard
+
+    for _ in range(3):                     # combat sain -> shaping décroît
+        t._update_ramp(10.0)
+    assert t._auto_shaping() < t._shaping_base
+
+    pos_before = t._ramp_pos
+    for _ in range(4):                     # effondrement -> recul (x2 plus vite)
+        t._update_ramp(0.1)
+    assert t._ramp_pos < pos_before
+    # le shaping est restauré en reculant sous 0.5
+    while t._ramp_pos > 0.4:
+        t._update_ramp(0.1)
+    assert abs(t._auto_shaping() - t._shaping_base) < 1e-12
+
+
 def test_chase_bot_actions():
     from train.scripted import ChaseBot
     hist = torch.zeros(3, 4, 48)

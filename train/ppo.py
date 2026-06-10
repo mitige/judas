@@ -20,6 +20,10 @@ class PPOConfig:
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     amp: bool = True
+    # stabilité / qualité d'apprentissage
+    target_kl: float = 0.02      # early-stop des epochs si KL moyen dépasse 1.5x
+    value_clip: float = 0.2      # clipping PPO2 du critic (0 = désactivé)
+    anneal: bool = True          # lr et entropie -> 0 linéairement sur le run
 
 
 class PPO:
@@ -32,8 +36,13 @@ class PPO:
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
 
     def update(self, buf: RolloutBuffer, learner_mask: torch.Tensor,
-               last_value: torch.Tensor) -> dict:
+               last_value: torch.Tensor, progress: float = 0.0) -> dict:
+        """progress dans [0,1] : avancement du run (pour l'annealing)."""
         cfg = self.cfg
+        frac = max(1.0 - progress, 0.05) if cfg.anneal else 1.0
+        for g in self.opt.param_groups:
+            g["lr"] = cfg.lr * frac
+        ent_coef = cfg.ent_coef * frac
         buf.compute_gae(last_value, cfg.gamma, cfg.lam)
 
         # échantillons (t, b) des agents contrôlés par le learner
@@ -51,7 +60,12 @@ class PPO:
                for k in ("loss_pi", "loss_v", "entropy", "clip_frac", "approx_kl")}
         n_updates = 0
 
+        stop = False
         for _ in range(cfg.epochs):
+            if stop:
+                break
+            kl_epoch = torch.zeros((), device=self.device)
+            n_mb = 0
             perm = torch.randperm(n, device=self.device)
             for start in range(0, n, cfg.minibatch_size):
                 mb = perm[start:start + cfg.minibatch_size]
@@ -59,6 +73,7 @@ class PPO:
                 hist = buf.windows(ti, bi)
                 raw = buf.raw_at(ti, bi)
                 old_logp = buf.logp[ti, bi]
+                old_value = buf.value[ti, bi]
                 ret = buf.ret[ti, bi]
                 adv = (buf.adv[ti, bi] - adv_mean) / adv_std
 
@@ -68,10 +83,16 @@ class PPO:
                     s1 = ratio * adv
                     s2 = ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * adv
                     loss_pi = -torch.min(s1, s2).mean()
-                    loss_v = 0.5 * (value - ret).pow(2).mean()
+                    if cfg.value_clip > 0:
+                        v_clip = old_value + (value - old_value).clamp(
+                            -cfg.value_clip, cfg.value_clip)
+                        loss_v = 0.5 * torch.max((value - ret).pow(2),
+                                                 (v_clip - ret).pow(2)).mean()
+                    else:
+                        loss_v = 0.5 * (value - ret).pow(2).mean()
                     loss_ent = -entropy.mean()
                     loss = (loss_pi + cfg.vf_coef * loss_v
-                            + cfg.ent_coef * loss_ent)
+                            + ent_coef * loss_ent)
 
                 self.opt.zero_grad(set_to_none=True)
                 self.scaler.scale(loss).backward()
@@ -82,12 +103,22 @@ class PPO:
                 self.scaler.update()
 
                 with torch.no_grad():
+                    kl = (old_logp - logp).mean().detach()
                     acc["loss_pi"] += loss_pi.detach()
                     acc["loss_v"] += loss_v.detach()
                     acc["entropy"] += entropy.mean().detach()
                     acc["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean()
-                    acc["approx_kl"] += (old_logp - logp).mean().detach()
+                    acc["approx_kl"] += kl
+                    kl_epoch += kl
                 n_updates += 1
+                n_mb += 1
+
+            # early-stop : une seule synchro GPU par epoch
+            if cfg.target_kl > 0 and n_mb > 0:
+                if float(kl_epoch.item()) / n_mb > 1.5 * cfg.target_kl:
+                    stop = True
 
         d = max(n_updates, 1)
-        return {k: float(v.item()) / d for k, v in acc.items()}
+        out = {k: float(v.item()) / d for k, v in acc.items()}
+        out["lr"] = cfg.lr * frac
+        return out

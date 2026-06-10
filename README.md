@@ -35,12 +35,19 @@ le mod Forge échange état/actions par WebSocket localhost à chaque tick → `
 | JDK | 8 | mod Forge 1.8.9 |
 | Node.js | 20+ | app Electron |
 
-## Installation
+## Installation (CUDA 12.8/12.9)
+
+```bat
+setup.bat        :: venv + PyTorch cu128 + Judas + verification GPU
+run.bat          :: menu : daemon / training / app / viz / tests / verify+bench
+```
+
+Ou manuellement :
 
 ```bat
 python -m venv .venv
 .venv\Scripts\activate
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install torch --index-url https://download.pytorch.org/whl/cu128
 pip install -e .[dev]
 ```
 

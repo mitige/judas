@@ -30,6 +30,8 @@ def _load_extension(precision: str):
 
         from torch.utils.cpp_extension import load
 
+        # RTX 3060 = compute 8.6 ; évite de compiler pour toutes les archs
+        os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "8.6")
         csrc = Path(__file__).parent / "csrc" / "boxing_kernel.cu"
         flags = ["-O3"]
         if precision == "double":

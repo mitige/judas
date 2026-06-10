@@ -5,7 +5,7 @@ description = "Judas - framework d'IA Minecraft 1.8.9 PvP boxing : simulateur CU
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.26",
-    "torch>=2.2",
+    "torch>=2.7",
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "websockets>=12.0",

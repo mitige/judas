@@ -74,6 +74,7 @@ class Trainer:
         # -1 : le premier _push_obs (reset) donne l'âge 0 à l'obs de spawn
         self.age = torch.full((self.B,), -1, dtype=torch.long, device=self.device)
         self.iter = 0
+        self.total_steps = 0          # agent-steps cumulés (tous agents)
 
         self.run_dir = Path("runs") / self.cfg["name"]
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -153,8 +154,11 @@ class Trainer:
             "strafe": torch.ones(self.B, dtype=torch.long, device=self.device),
             "bins": torch.zeros(self.B, 3, device=self.device),
         }
+        # résultats accumulés sur GPU, traités en une seule synchro après le rollout
+        ep_done = torch.zeros(self.T, self.N, dtype=torch.bool, device=self.device)
+        ep_winner = torch.zeros(self.T, self.N, dtype=torch.int32, device=self.device)
         buf.set_prefix(self.hist)
-        for _ in range(self.T):
+        for t in range(self.T):
             obs_now = self.hist[:, -1].clone()
             raw = {k: v.clone() for k, v in zero_raw.items()}
             logp = torch.zeros(self.B, device=self.device)
@@ -190,19 +194,23 @@ class Trainer:
                     done.float().repeat_interleave(2))
 
             self._push_obs(obs.reshape(self.B, OBS_DIM), done)
+            ep_done[t] = done
+            ep_winner[t] = winner
 
-            # résultats de matchs -> ELO
-            done_idx = torch.nonzero(done, as_tuple=False).squeeze(-1)
-            for e in done_idx.tolist():
-                w = int(winner[e])
-                ep_stats["matches"] += 1
-                gi = int(self._env_opp[e])
-                if gi < 0:
-                    ep_stats["mirror_matches"] += 1
-                    continue
-                score = 1.0 if w == 0 else (0.5 if w == -1 else 0.0)
-                self.league.report(self._opp_pool_idx[gi], score)
-                ep_stats["wins" if w == 0 else ("draws" if w == -1 else "losses")] += 1
+        # résultats de matchs -> ELO (une seule synchro GPU -> CPU)
+        done_cpu = ep_done.cpu().numpy()
+        winner_cpu = ep_winner.cpu().numpy()
+        env_opp_cpu = self._env_opp.cpu().numpy()
+        for t, e in zip(*done_cpu.nonzero()):
+            w = int(winner_cpu[t, e])
+            ep_stats["matches"] += 1
+            gi = int(env_opp_cpu[e])
+            if gi < 0:
+                ep_stats["mirror_matches"] += 1
+                continue
+            score = 1.0 if w == 0 else (0.5 if w == -1 else 0.0)
+            self.league.report(self._opp_pool_idx[gi], score)
+            ep_stats["wins" if w == 0 else ("draws" if w == -1 else "losses")] += 1
         return ep_stats
 
     # ------------------------------------------------------------------- main
@@ -219,7 +227,8 @@ class Trainer:
                 out = self.policy.act(self.hist[learner_mask])
             last_value[learner_mask] = out["value"].float()
 
-        stats = self.ppo.update(buf, learner_mask, last_value)
+        progress = self.iter / max(self.cfg["total_iters"], 1)
+        stats = self.ppo.update(buf, learner_mask, last_value, progress)
 
         self.iter += 1
         if self.iter % self.cfg["pool_every"] == 0 or len(self.league.pool) == 0:
@@ -228,9 +237,11 @@ class Trainer:
             self.save()
 
         dt = time.perf_counter() - t0
+        self.total_steps += self.T * self.N * 2
         lm = learner_mask
         metrics = {
             "iter": self.iter,
+            "total_steps": self.total_steps,
             "sps": round(self.T * self.N * 2 / dt),
             "reward_mean": float(buf.reward[:, lm].mean()),
             "elo": round(self.league.learner_elo, 1),
@@ -257,6 +268,7 @@ class Trainer:
         path = self.run_dir / f"ckpt_{self.iter:06d}.pt"
         torch.save({
             "iter": self.iter,
+            "total_steps": self.total_steps,
             "policy": self.policy.state_dict(),
             "optimizer": self.ppo.opt.state_dict(),
             "league": self.league.state_dict(),
@@ -273,6 +285,7 @@ class Trainer:
         self.ppo.opt.load_state_dict(ckpt["optimizer"])
         self.league.load_state_dict(ckpt["league"])
         self.iter = ckpt["iter"]
+        self.total_steps = ckpt.get("total_steps", 0)
 
     def _log(self, metrics: dict) -> None:
         with open(self.run_dir / "metrics.jsonl", "a") as f:

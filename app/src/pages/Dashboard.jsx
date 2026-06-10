@@ -59,6 +59,7 @@ export default function Dashboard({ status, metrics }) {
               hl={status?.training?.running} />
           <KV k="run" v={status?.training?.run ?? "—"} />
           <KV k="iteration" v={fmt(last(metrics, "iter"))} />
+          <KV k="total steps" v={human(last(metrics, "total_steps"))} hl />
           <KV k="pool" v={fmt(last(metrics, "pool_size"))} />
           <KV k="matches" v={fmt(last(metrics, "matches"))} />
         </div>
@@ -98,4 +99,7 @@ function KV({ k, v, hl }) {
 const fmt = (v, d = 0) => (v == null ? null : Number(v).toFixed(d));
 const pct = (v) => (v == null ? null : `${(v * 100).toFixed(0)}%`);
 const human = (v) =>
-  v == null ? null : v >= 1e6 ? `${(v / 1e6).toFixed(2)}M` : `${(v / 1e3).toFixed(0)}k`;
+  v == null ? null
+    : v >= 1e9 ? `${(v / 1e9).toFixed(2)}B`
+    : v >= 1e6 ? `${(v / 1e6).toFixed(2)}M`
+    : `${(v / 1e3).toFixed(0)}k`;

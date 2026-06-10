@@ -49,10 +49,11 @@ def test_evaluate_matches_act_logp():
     hist = torch.randn(7, 4, pol.cfg.obs_dim)
     out = pol.act(hist)
     raw = {k: out[k] for k in ("pre", "fwd", "strafe", "bins")}
-    logp, entropy, value = pol.evaluate(hist, raw)
+    logp, entropy, value, aux = pol.evaluate(hist, raw)
     assert torch.allclose(logp, out["logp"], atol=1e-5)
     assert torch.allclose(value, out["value"], atol=1e-5)
     assert torch.isfinite(entropy).all()
+    assert aux.shape == (7, 7)
 
 
 def test_to_sim_actions_ranges():
@@ -97,7 +98,7 @@ def test_policy_mlp_mode():
     assert out["pre"].shape == (5, 2)
     assert torch.isfinite(out["logp"]).all()
     raw = {k: out[k] for k in ("pre", "fwd", "strafe", "bins")}
-    logp, entropy, value = pol.evaluate(hist, raw)
+    logp, entropy, value, _aux = pol.evaluate(hist, raw)
     assert torch.isfinite(logp).all() and torch.isfinite(value).all()
 
 
@@ -122,6 +123,16 @@ def test_spawn_gap_curriculum():
     env._matches[0] = env._new_match()
     p0, p1 = env._matches[0].players
     assert abs(abs(p1.z - p0.z) - 12.0) < 1e-9
+
+
+def test_bot_opponents_in_league(tmp_path, monkeypatch):
+    """league_bot_frac=1 -> tous les agents 1 sont contrôlés par le chase-bot."""
+    monkeypatch.chdir(tmp_path)
+    t = Trainer({**TINY, "league_bot_frac": 1.0}, device="cpu")
+    mask = t._assign_opponents()
+    assert int((~mask).sum()) == t.N        # agents 1 exclus de l'apprentissage
+    m = t.train_iter()                       # tourne sans erreur avec les bots
+    assert "reward_mean" in m
 
 
 def test_chase_bot_actions():

@@ -25,6 +25,7 @@ class PPOConfig:
     value_clip: float = 0.2      # clipping PPO2 du critic (0 = désactivé)
     anneal: bool = True          # lr et entropie -> 0 linéairement sur le run
     sample_frac: float = 0.5     # fraction du buffer utilisée par epoch (vitesse)
+    aux_coef: float = 0.05       # loss auxiliaire : prédire l'adversaire à t+1
 
 
 class PPO:
@@ -58,7 +59,8 @@ class PPO:
 
         # stats accumulées sur GPU : une seule synchro à la fin de l'update
         acc = {k: torch.zeros((), device=self.device)
-               for k in ("loss_pi", "loss_v", "entropy", "clip_frac", "approx_kl")}
+               for k in ("loss_pi", "loss_v", "loss_aux", "entropy",
+                         "clip_frac", "approx_kl")}
         n_updates = 0
 
         n_used = max(int(n * min(max(cfg.sample_frac, 0.05), 1.0)),
@@ -83,7 +85,7 @@ class PPO:
                 adv = (buf.adv[ti, bi] - adv_mean) / adv_std
 
                 with torch.amp.autocast("cuda", enabled=self.use_amp):
-                    logp, entropy, value = self.policy.evaluate(hist, raw)
+                    logp, entropy, value, aux = self.policy.evaluate(hist, raw)
                     ratio = (logp - old_logp).exp()
                     s1 = ratio * adv
                     s2 = ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * adv
@@ -98,6 +100,15 @@ class PPO:
                     loss_ent = -entropy.mean()
                     loss = (loss_pi + cfg.vf_coef * loss_v
                             + ent_coef * loss_ent)
+                    if cfg.aux_coef > 0:
+                        # cible : état adverse au tick suivant (obs[0:7]),
+                        # invalide en fin de buffer / fin d'épisode
+                        valid = ((ti < buf.T - 1).float()
+                                 * (1.0 - buf.done[ti, bi]))
+                        nxt = buf.obs[(ti + 1).clamp(max=buf.T - 1), bi][:, :7]
+                        loss_aux = (((aux - nxt).pow(2).mean(-1) * valid).sum()
+                                    / valid.sum().clamp(min=1.0))
+                        loss = loss + cfg.aux_coef * loss_aux
 
                 self.opt.zero_grad(set_to_none=True)
                 self.scaler.scale(loss).backward()
@@ -111,6 +122,8 @@ class PPO:
                     kl = (old_logp - logp).mean().detach()
                     acc["loss_pi"] += loss_pi.detach()
                     acc["loss_v"] += loss_v.detach()
+                    if cfg.aux_coef > 0:
+                        acc["loss_aux"] += loss_aux.detach()
                     acc["entropy"] += entropy.mean().detach()
                     acc["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean()
                     acc["approx_kl"] += kl

@@ -74,6 +74,10 @@ class JudasPolicy(nn.Module):
         self.strafe_head = nn.Linear(c.d_model, 3)
         self.bin_head = nn.Linear(c.d_model, 3)         # jump, sprint, attack
         self.value_head = nn.Linear(c.d_model, 1)
+        # tête auxiliaire : prédit l'état adverse au tick suivant (obs[0:7] =
+        # position relative + distance + vélocité adverse) — force le trunk à
+        # modéliser l'adversaire
+        self.aux_head = nn.Linear(c.d_model, 7)
 
         for head in (self.mean_head, self.fwd_head, self.strafe_head, self.bin_head):
             nn.init.orthogonal_(head.weight, gain=0.01)
@@ -133,8 +137,9 @@ class JudasPolicy(nn.Module):
         return lp_cont + lp_fwd + lp_str + lp_bin
 
     def evaluate(self, hist: torch.Tensor, raw: dict):
-        """Log-probs / entropie / value pour PPO (avec gradient)."""
-        mean, log_std, fwd_l, str_l, bin_l, value = self.heads(self.trunk(hist))
+        """Log-probs / entropie / value / prédiction aux pour PPO."""
+        z = self.trunk(hist)
+        mean, log_std, fwd_l, str_l, bin_l, value = self.heads(z)
         logp = self.log_prob(mean, log_std, fwd_l, str_l, bin_l, raw)
         ent_cont = (0.5 * (1.0 + math.log(2 * math.pi)) + log_std).sum(-1)
         ent_fwd = torch.distributions.Categorical(logits=fwd_l).entropy()
@@ -142,7 +147,7 @@ class JudasPolicy(nn.Module):
         p = torch.sigmoid(bin_l)
         ent_bin = (-(p * (p + 1e-8).log() + (1 - p) * (1 - p + 1e-8).log())).sum(-1)
         entropy = ent_cont + ent_fwd + ent_str + ent_bin
-        return logp, entropy, value
+        return logp, entropy, value, self.aux_head(z)
 
 
 def to_sim_actions(raw: dict) -> torch.Tensor:

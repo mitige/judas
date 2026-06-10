@@ -41,6 +41,7 @@ DEFAULT_CFG = {
     "shaping_decay_iters": 100,
     "curriculum_gap": 2.0,       # spawn proche au début (0 = désactivé)
     "snapshot_gate": True,       # snapshot league seulement s'il bat le précédent
+    "league_bot_frac": 0.2,      # part d'envs vs chase-bot (annealée -> 0.05)
     "seed": 0,
     "sim": {},
     "policy": {},
@@ -96,8 +97,11 @@ class Trainer:
         self._eval_sim = None
         self._eval_opp: JudasPolicy | None = None
         self._snapshot_skips = 0
+        self._best_bot = -1.0
         self._full_gap = min(self.sim_cfg.arena_size_x,
                              self.sim_cfg.arena_size_z) / 3.0
+        from .scripted import ChaseBot
+        self._bot = ChaseBot()
 
         self.run_dir = Path("runs") / self.cfg["name"]
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -141,25 +145,36 @@ class Trainer:
 
     # -------------------------------------------------------------- opponents
     def _assign_opponents(self) -> torch.Tensor:
-        """Choisit les adversaires du rollout. Retourne learner_mask [B]."""
+        """Choisit les adversaires du rollout (snapshots league + chase-bot).
+        Retourne learner_mask [B]. _env_opp : -1 miroir, -2 bot, >=0 groupe."""
         learner_mask = torch.ones(self.B, dtype=torch.bool, device=self.device)
         self._opp_models, self._opp_pool_idx = [], []
         self._env_opp.fill_(-1)
+        perm = torch.randperm(self.N, device=self.device)
+
+        # part de matchs contre le chase-bot (forte au début, annealée à 5%)
+        bf = self.cfg["league_bot_frac"]
+        n_bot = int(self.N * max(0.05, bf * (1.0 - self._ramp_frac()))) if bf > 0 else 0
+        if n_bot > 0:
+            bot_envs = perm[:n_bot]
+            self._env_opp[bot_envs] = -2
+            learner_mask[bot_envs * 2 + 1] = False
+
         frac = self.cfg["league_frac"]
         if not self.league.pool or frac <= 0:
             return learner_mask
-        n_league = int(self.N * frac)
-        if n_league == 0:
+        n_league = min(int(self.N * frac), self.N - n_bot)
+        if n_league <= 0:
             return learner_mask
         n_groups = min(4, len(self.league.pool))
         idxs = self.league.sample(n_groups)
-        env_ids = torch.randperm(self.N, device=self.device)[:n_league]
+        env_ids = perm[n_bot:n_bot + n_league]
         groups = env_ids.chunk(n_groups)
         for gi, (pool_idx, envs) in enumerate(zip(idxs, groups)):
             if envs.numel() == 0:
                 continue
             m = JudasPolicy(self.pol_cfg).to(self.device)
-            m.load_state_dict(self.league.pool[pool_idx]["state_dict"])
+            m.load_state_dict(self.league.pool[pool_idx]["state_dict"], strict=False)
             m.eval()
             self._opp_models.append(m)
             self._opp_pool_idx.append(pool_idx)
@@ -210,8 +225,12 @@ class Trainer:
                 raw["fwd"][agents] = o["fwd"].long()
                 raw["strafe"][agents] = o["strafe"].long()
 
-            sim_actions = to_sim_actions(raw).view(self.N, 2, 7)
-            obs, rew, done, winner = self._sim_step(sim_actions)
+            sim_actions = to_sim_actions(raw)
+            bot_envs = torch.nonzero(self._env_opp == -2, as_tuple=False).squeeze(-1)
+            if bot_envs.numel() > 0:
+                agents = bot_envs * 2 + 1
+                sim_actions[agents] = self._bot.act7(self.hist[agents])
+            obs, rew, done, winner = self._sim_step(sim_actions.view(self.N, 2, 7))
 
             buf.add(obs_now, self.age.clamp(min=0), raw, logp, value,
                     rew.reshape(self.B),
@@ -229,7 +248,9 @@ class Trainer:
             w = int(winner_cpu[t, e])
             ep_stats["matches"] += 1
             gi = int(env_opp_cpu[e])
-            if gi < 0:
+            if gi == -2:                 # match vs chase-bot : pas d'ELO
+                continue
+            if gi == -1:
                 ep_stats["mirror_matches"] += 1
                 continue
             score = 1.0 if w == 0 else (0.5 if w == -1 else 0.0)
@@ -280,6 +301,16 @@ class Trainer:
                 evals["eval_past"] = self._evaluate(
                     self.league.pool[-1]["state_dict"])
             evals["eval_bot"] = self._evaluate("bot")
+            # meilleur checkpoint absolu -> best.pt (celui à déployer)
+            if evals["eval_bot"] > self._best_bot:
+                self._best_bot = evals["eval_bot"]
+                torch.save({
+                    "iter": self.iter,
+                    "total_steps": self.total_steps,
+                    "eval_bot": self._best_bot,
+                    "policy": self.policy.state_dict(),
+                    "policy_cfg": self.pol_cfg.__dict__,
+                }, self.run_dir / "best.pt")
 
         dt = time.perf_counter() - t0
         self.total_steps += self.T * self.N * 2
@@ -398,7 +429,7 @@ class Trainer:
             from .scripted import ChaseBot
             bot = ChaseBot()
         else:
-            self._eval_opp.load_state_dict(opponent)
+            self._eval_opp.load_state_dict(opponent, strict=False)
             self._eval_opp.eval()
 
         obs = self._to_torch(self._eval_sim.reset()).float()    # [n, 2, D]
@@ -470,8 +501,12 @@ class Trainer:
 
     def load(self, path: str) -> None:
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
-        self.policy.load_state_dict(ckpt["policy"])
-        self.ppo.opt.load_state_dict(ckpt["optimizer"])
+        # strict=False : compatibilité avec les checkpoints d'avant la tête aux
+        self.policy.load_state_dict(ckpt["policy"], strict=False)
+        try:
+            self.ppo.opt.load_state_dict(ckpt["optimizer"])
+        except (ValueError, KeyError):
+            pass    # architecture modifiée -> optimizer frais
         self.league.load_state_dict(ckpt["league"])
         self.iter = ckpt["iter"]
         self.total_steps = ckpt.get("total_steps", 0)

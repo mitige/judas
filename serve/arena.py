@@ -38,7 +38,7 @@ class _Agent:
             ckpt = torch.load(self.path, map_location="cpu", weights_only=False)
             cfg = PolicyConfig(**ckpt.get("policy_cfg", {}))
             self.model = JudasPolicy(cfg).to(device).eval()
-            self.model.load_state_dict(ckpt["policy"])
+            self.model.load_state_dict(ckpt["policy"], strict=False)
             self.history = cfg.history
 
     @torch.no_grad()

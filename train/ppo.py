@@ -24,6 +24,7 @@ class PPOConfig:
     target_kl: float = 0.02      # early-stop des epochs si KL moyen dépasse 1.5x
     value_clip: float = 0.2      # clipping PPO2 du critic (0 = désactivé)
     anneal: bool = True          # lr et entropie -> 0 linéairement sur le run
+    sample_frac: float = 0.5     # fraction du buffer utilisée par epoch (vitesse)
 
 
 class PPO:
@@ -60,14 +61,18 @@ class PPO:
                for k in ("loss_pi", "loss_v", "entropy", "clip_frac", "approx_kl")}
         n_updates = 0
 
+        n_used = max(int(n * min(max(cfg.sample_frac, 0.05), 1.0)),
+                     cfg.minibatch_size)
+        n_used = min(n_used, n)
         stop = False
         for _ in range(cfg.epochs):
             if stop:
                 break
             kl_epoch = torch.zeros((), device=self.device)
             n_mb = 0
-            perm = torch.randperm(n, device=self.device)
-            for start in range(0, n, cfg.minibatch_size):
+            # permutation complète -> sous-ensemble frais à chaque epoch
+            perm = torch.randperm(n, device=self.device)[:n_used]
+            for start in range(0, n_used, cfg.minibatch_size):
                 mb = perm[start:start + cfg.minibatch_size]
                 ti, bi = t_all[mb], b_all[mb]
                 hist = buf.windows(ti, bi)

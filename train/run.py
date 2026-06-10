@@ -220,6 +220,9 @@ class Trainer:
         buf = self._buf
         buf.reset()
         ep = self._collect(buf, learner_mask)
+        if self.device.type == "cuda":
+            torch.cuda.synchronize()
+        t_collect = time.perf_counter() - t0
 
         with torch.no_grad():
             last_value = torch.zeros(self.B, device=self.device)
@@ -251,6 +254,8 @@ class Trainer:
             "matches": ep["matches"],
             **{k: round(v, 5) for k, v in stats.items()},
             "time": round(dt, 2),
+            "time_collect": round(t_collect, 2),
+            "time_update": round(dt - t_collect, 2),
         }
         self._log(metrics)
         return metrics

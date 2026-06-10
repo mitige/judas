@@ -37,8 +37,10 @@ DEFAULT_CFG = {
     "eval_envs": 128,
     "eval_target_hits": 20,
     "eval_max_ticks": 1500,
-    "shaping_hit_rate": 5.0,     # hits/min déclenchant le decay du shaping
+    "shaping_hit_rate": 5.0,     # hits/min déclenchant la rampe (shaping + spawn)
     "shaping_decay_iters": 100,
+    "curriculum_gap": 2.0,       # spawn proche au début (0 = désactivé)
+    "snapshot_gate": True,       # snapshot league seulement s'il bat le précédent
     "seed": 0,
     "sim": {},
     "policy": {},
@@ -65,6 +67,9 @@ class Trainer:
         self.T = self.cfg["rollout_ticks"]
 
         self.sim_cfg = SimConfig(**self.cfg["sim"])
+        # curriculum : spawn proche tant que les agents ne se battent pas
+        if self.cfg["curriculum_gap"] > 0 and self.sim_cfg.spawn_gap == 0:
+            self.sim_cfg.spawn_gap = self.cfg["curriculum_gap"]
         self.sim = make_sim(self.N, self.sim_cfg, seed=self.cfg["seed"],
                             force_cpu=self.device.type != "cuda")
 
@@ -85,11 +90,14 @@ class Trainer:
 
         # automatisations
         self._shaping_base = self.sim_cfg.reward_dist
-        self._shaping_start: int | None = None   # itération de début du decay
+        self._ramp_start: int | None = None       # début de la rampe combat
         self._hit_streak = 0
         self._entropy_hist: list[float] = []
         self._eval_sim = None
         self._eval_opp: JudasPolicy | None = None
+        self._snapshot_skips = 0
+        self._full_gap = min(self.sim_cfg.arena_size_x,
+                             self.sim_cfg.arena_size_z) / 3.0
 
         self.run_dir = Path("runs") / self.cfg["name"]
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -251,17 +259,19 @@ class Trainer:
 
         self.iter += 1
         if self.iter % self.cfg["pool_every"] == 0 or len(self.league.pool) == 0:
-            self.league.add_snapshot(self.policy)
+            self._maybe_snapshot()
         if self.iter % self.cfg["save_every"] == 0:
             self.save()
 
         lm = learner_mask
         # hits/minute par agent learner (proxy : reward d'un hit ~ +1)
         hit_rate = float((buf.reward[:, lm] > 0.9).float().mean()) * 1200.0
-        shaping = self._auto_shaping(hit_rate)
+        self._update_ramp(hit_rate)
+        shaping = self._auto_shaping()
+        spawn_gap = self._auto_curriculum()
         warn_entropy = self._entropy_guard(stats["entropy"])
 
-        # éval automatique vs anciens snapshots
+        # éval automatique : snapshots passés + bot scripté (étalon absolu)
         evals = {}
         if (self.cfg["eval_every"] > 0 and self.league.pool
                 and self.iter % self.cfg["eval_every"] == 0):
@@ -269,6 +279,7 @@ class Trainer:
             if len(self.league.pool) > 1:
                 evals["eval_past"] = self._evaluate(
                     self.league.pool[-1]["state_dict"])
+            evals["eval_bot"] = self._evaluate("bot")
 
         dt = time.perf_counter() - t0
         self.total_steps += self.T * self.N * 2
@@ -284,6 +295,7 @@ class Trainer:
             "matches": ep["matches"],
             "hit_rate": round(hit_rate, 2),
             "shaping": round(shaping, 6),
+            "spawn_gap": round(spawn_gap, 2),
             "warn_entropy": warn_entropy,
             **{k: round(v, 4) for k, v in evals.items()},
             **{k: round(v, 5) for k, v in stats.items()},
@@ -295,25 +307,58 @@ class Trainer:
         return metrics
 
     # -------------------------------------------------------- automatisations
-    def _auto_shaping(self, hit_rate: float) -> float:
-        """Decay automatique du shaping de distance : une fois que les agents
-        frappent régulièrement (hit_rate soutenu), le shaping -> 0 linéairement.
-        Retourne la valeur courante de reward_dist."""
+    def _update_ramp(self, hit_rate: float) -> None:
+        """Déclenche la rampe (decay shaping + élargissement spawn) quand les
+        agents frappent régulièrement, de façon soutenue."""
+        if self._ramp_start is not None:
+            return
+        if hit_rate >= self.cfg["shaping_hit_rate"]:
+            self._hit_streak += 1
+        else:
+            self._hit_streak = 0
+        if self._hit_streak >= 10:
+            self._ramp_start = self.iter
+
+    def _ramp_frac(self) -> float:
+        if self._ramp_start is None:
+            return 0.0
+        return min((self.iter - self._ramp_start)
+                   / max(self.cfg["shaping_decay_iters"], 1), 1.0)
+
+    def _auto_shaping(self) -> float:
+        """Shaping de distance -> 0 le long de la rampe."""
         if self._shaping_base <= 0:
             return 0.0
-        if self._shaping_start is None:
-            if hit_rate >= self.cfg["shaping_hit_rate"]:
-                self._hit_streak += 1
-            else:
-                self._hit_streak = 0
-            if self._hit_streak >= 10:
-                self._shaping_start = self.iter
-            return self._shaping_base
-        frac = (self.iter - self._shaping_start) / max(
-            self.cfg["shaping_decay_iters"], 1)
-        value = self._shaping_base * max(1.0 - frac, 0.0)
-        self.sim.set_reward_dist(value)
+        value = self._shaping_base * (1.0 - self._ramp_frac())
+        if self._ramp_start is not None:
+            self.sim.set_reward_dist(value)
         return value
+
+    def _auto_curriculum(self) -> float:
+        """Spawn proche -> distance standard le long de la rampe."""
+        cg = self.cfg["curriculum_gap"]
+        if cg <= 0:
+            return self.sim_cfg.spawn_gap or self._full_gap
+        frac = self._ramp_frac()
+        gap = cg + (self._full_gap - cg) * frac
+        if self._ramp_start is not None:
+            # frac = 1 -> 0 = mode auto (arène/3), valeur standard exacte
+            self.sim.set_spawn_gap(0.0 if frac >= 1.0 else gap)
+        return gap
+
+    def _maybe_snapshot(self) -> None:
+        """Snapshot league, gaté : seulement si le learner bat le précédent
+        (winrate >= 0.52). Forcé après 2 refus pour éviter la stagnation."""
+        if (not self.cfg["snapshot_gate"] or not self.league.pool
+                or self.cfg["eval_every"] <= 0):
+            self.league.add_snapshot(self.policy)
+            return
+        wr = self._evaluate(self.league.pool[-1]["state_dict"])
+        if wr >= 0.52 or self._snapshot_skips >= 2:
+            self.league.add_snapshot(self.policy)
+            self._snapshot_skips = 0
+        else:
+            self._snapshot_skips += 1
 
     def _entropy_guard(self, entropy: float) -> int:
         """1 si l'entropie vient de s'effondrer (< 50% de la médiane récente)."""
@@ -328,8 +373,9 @@ class Trainer:
         return warn
 
     @torch.no_grad()
-    def _evaluate(self, opp_state_dict: dict) -> float:
-        """Winrate du learner contre un snapshot, sur des matchs courts."""
+    def _evaluate(self, opponent) -> float:
+        """Winrate du learner sur des matchs courts.
+        opponent : state_dict d'un snapshot, ou "bot" (chase-bot scripté)."""
         n = self.cfg["eval_envs"]
         if self._eval_sim is None:
             s = self.sim_cfg
@@ -347,8 +393,13 @@ class Trainer:
             self._eval_sim = make_sim(n, eval_cfg, seed=self.cfg["seed"] + 1,
                                       force_cpu=self.device.type != "cuda")
             self._eval_opp = JudasPolicy(self.pol_cfg).to(self.device)
-        self._eval_opp.load_state_dict(opp_state_dict)
-        self._eval_opp.eval()
+        use_bot = opponent == "bot"
+        if use_bot:
+            from .scripted import ChaseBot
+            bot = ChaseBot()
+        else:
+            self._eval_opp.load_state_dict(opponent)
+            self._eval_opp.eval()
 
         obs = self._to_torch(self._eval_sim.reset()).float()    # [n, 2, D]
         hist = torch.zeros(n, 2, self.H, OBS_DIM, device=self.device)
@@ -357,11 +408,15 @@ class Trainer:
         for _ in range(self.cfg["eval_max_ticks"]):
             with torch.autocast("cuda", dtype=torch.float16, enabled=self._use_amp):
                 a0 = self.policy.act(hist[:, 0])
-                a1 = self._eval_opp.act(hist[:, 1])
-            actions = torch.stack(
-                [to_sim_actions({k: a0[k] for k in ("pre", "fwd", "strafe", "bins")}),
-                 to_sim_actions({k: a1[k] for k in ("pre", "fwd", "strafe", "bins")})],
-                dim=1)
+                a0_7 = to_sim_actions(
+                    {k: a0[k] for k in ("pre", "fwd", "strafe", "bins")})
+                if use_bot:
+                    a1_7 = bot.act7(hist[:, 1])
+                else:
+                    a1 = self._eval_opp.act(hist[:, 1])
+                    a1_7 = to_sim_actions(
+                        {k: a1[k] for k in ("pre", "fwd", "strafe", "bins")})
+            actions = torch.stack([a0_7.float(), a1_7.float()], dim=1)
             obs, _, done, winner = self._sim_step(actions, sim=self._eval_sim)
             hist = torch.roll(hist, shifts=-1, dims=2)
             hist[done.bool()] = 0.0
@@ -387,6 +442,7 @@ class Trainer:
         torch.save({
             "iter": self.iter,
             "total_steps": self.total_steps,
+            "ramp_start": self._ramp_start,
             "policy": self.policy.state_dict(),
             "optimizer": self.ppo.opt.state_dict(),
             "league": self.league.state_dict(),
@@ -419,6 +475,7 @@ class Trainer:
         self.league.load_state_dict(ckpt["league"])
         self.iter = ckpt["iter"]
         self.total_steps = ckpt.get("total_steps", 0)
+        self._ramp_start = ckpt.get("ramp_start")
 
     def _log(self, metrics: dict) -> None:
         with open(self.run_dir / "metrics.jsonl", "a") as f:

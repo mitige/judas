@@ -22,6 +22,7 @@ class SimConfig:
 
     # Spawn
     spawn_jitter: float = 0.0           # jitter horizontal max (blocs)
+    spawn_gap: float = 0.0              # demi-distance de spawn (0 = arène/3)
 
     # Reward
     reward_hit: float = 1.0
@@ -44,6 +45,7 @@ class SimConfig:
             self.spawn_jitter,
             self.reward_hit, self.reward_hurt, self.reward_win, self.reward_dist,
             1.0 if self.randomize else 0.0,
+            self.spawn_gap,
         ]
 
 

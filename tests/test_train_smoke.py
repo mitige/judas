@@ -106,8 +106,34 @@ def test_auto_eval_logged(tmp_path, monkeypatch):
     t = Trainer({**TINY, "eval_every": 1}, device="cpu")
     t.train_iter()                       # pool créé à l'itération 1
     m = t.train_iter()
-    assert "eval_first" in m
+    assert "eval_first" in m and "eval_bot" in m
     assert 0.0 <= m["eval_first"] <= 1.0
+    assert 0.0 <= m["eval_bot"] <= 1.0
+
+
+def test_spawn_gap_curriculum():
+    """spawn_gap configuré -> les joueurs spawnent à 2x gap l'un de l'autre."""
+    from sim import JudasSimRef, SimConfig
+    env = JudasSimRef(1, SimConfig(spawn_gap=2.0, target_hits=5, max_ticks=50))
+    env.reset()
+    p0, p1 = env._matches[0].players
+    assert abs(abs(p1.z - p0.z) - 4.0) < 1e-9
+    env.set_spawn_gap(0.0)               # retour au standard (arène/3)
+    env._matches[0] = env._new_match()
+    p0, p1 = env._matches[0].players
+    assert abs(abs(p1.z - p0.z) - 12.0) < 1e-9
+
+
+def test_chase_bot_actions():
+    from train.scripted import ChaseBot
+    hist = torch.zeros(3, 4, 48)
+    hist[:, -1, 36] = 40.0 / 180.0       # rot speed
+    hist[:, -1, 11] = 1.0                # sin(yaw_err) = 1 -> tourner a fond
+    hist[:, -1, 12] = 0.0
+    a = ChaseBot().act7(hist)
+    assert a.shape == (3, 7)
+    assert (a[:, 0] == 1.0).all()        # dyaw saturé
+    assert (a[:, 2] == 1.0).all() and (a[:, 6] == 1.0).all()
 
 
 def test_metrics_have_automation_fields(tiny_trainer):

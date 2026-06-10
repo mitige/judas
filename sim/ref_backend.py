@@ -46,6 +46,7 @@ class JudasSimRef:
         return BoxingMatch(BoxingConfig(
             arena_size_x=c.arena_size_x,
             arena_size_z=c.arena_size_z,
+            spawn_gap=c.spawn_gap,
             target_hits=c.target_hits,
             max_ticks=c.max_ticks,
             speed_amplifier=c.speed_amplifier,
@@ -63,6 +64,10 @@ class JudasSimRef:
     def set_reward_dist(self, v: float) -> None:
         """Shaping de distance modifiable à chaud (decay automatique)."""
         self.cfg.reward_dist = float(v)
+
+    def set_spawn_gap(self, v: float) -> None:
+        """Curriculum : distance de spawn (appliquée aux prochains matchs)."""
+        self.cfg.spawn_gap = float(v)
 
     # ------------------------------------------------------------------- API
     def reset(self) -> np.ndarray:

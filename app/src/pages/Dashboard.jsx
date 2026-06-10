@@ -46,10 +46,10 @@ export default function Dashboard({ status, metrics }) {
               trend={series(metrics, "eval_first")} />
         <Stat label="eval vs past" value={pct(last(metrics, "eval_past"))}
               trend={series(metrics, "eval_past")} />
+        <Stat label="eval vs bot" value={pct(last(metrics, "eval_bot"))}
+              trend={series(metrics, "eval_bot")} />
         <Stat label="hit rate /min" value={fmt(last(metrics, "hit_rate"), 1)}
               trend={series(metrics, "hit_rate")} />
-        <Stat label="shaping" value={fmt(last(metrics, "shaping"), 4)}
-              trend={series(metrics, "shaping")} />
       </div>
 
       <div className="grid cols-3">
@@ -73,6 +73,8 @@ export default function Dashboard({ status, metrics }) {
           <KV k="total steps" v={human(last(metrics, "total_steps"))} hl />
           <KV k="pool" v={fmt(last(metrics, "pool_size"))} />
           <KV k="matches" v={fmt(last(metrics, "matches"))} />
+          <KV k="shaping" v={fmt(last(metrics, "shaping"), 4)} />
+          <KV k="spawn gap" v={fmt(last(metrics, "spawn_gap"), 1)} />
         </div>
         <div className="panel">
           <div className="label">live</div>

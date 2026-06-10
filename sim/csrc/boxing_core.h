@@ -116,6 +116,7 @@ struct SimParams {
     float jitter;
     float r_hit, r_hurt, r_win, r_dist;
     float randomize;
+    float spawn_gap;     // demi-distance de spawn (0 = arène/3)
 };
 
 // État d'un agent en registres
@@ -413,8 +414,9 @@ JD void store_agent(const StatePtrs &S, int n, int i, const P &p) {
 JD void reset_match(const StatePtrs &S, int n, const SimParams &pr, P *agents) {
     unsigned long long rs = S.rng[n];
     jreal cx = (jreal)pr.arena_x / R2, cz = (jreal)pr.arena_z / R2;
-    jreal gap = ((jreal)pr.arena_x < (jreal)pr.arena_z ? (jreal)pr.arena_x
-                                                       : (jreal)pr.arena_z) / (jreal)3.0;
+    jreal gap = pr.spawn_gap > 0.0f ? (jreal)pr.spawn_gap
+        : ((jreal)pr.arena_x < (jreal)pr.arena_z ? (jreal)pr.arena_x
+                                                 : (jreal)pr.arena_z) / (jreal)3.0;
     int randomize = pr.randomize > 0.5f;
     for (int i = 0; i < 2; ++i) {
         P p;

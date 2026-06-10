@@ -99,6 +99,11 @@ class JudasSim:
         self.cfg.reward_dist = float(v)
         self._params = [float(x) for x in self.cfg.as_floats()]
 
+    def set_spawn_gap(self, v: float) -> None:
+        """Curriculum : distance de spawn modifiable à chaud (0 = arène/3)."""
+        self.cfg.spawn_gap = float(v)
+        self._params = [float(x) for x in self.cfg.as_floats()]
+
     # ------------------------------------------------------------ inspection
     def raw_state(self) -> dict:
         """État brut (copie CPU) — debug / tests d'équivalence."""

@@ -52,7 +52,8 @@ class BoxingMatch:
     def reset(self) -> None:
         cfg = self.cfg
         cx, cz = cfg.arena_size_x / 2.0, cfg.arena_size_z / 2.0
-        gap = min(cfg.arena_size_x, cfg.arena_size_z) / 3.0
+        gap = cfg.spawn_gap if cfg.spawn_gap > 0.0 else \
+            min(cfg.arena_size_x, cfg.arena_size_z) / 3.0
         # Face à face le long de l'axe Z, yaw 0 = +Z, yaw 180 = -Z
         self.players = [
             PlayerState(x=cx, y=0.0, z=cz - gap, yaw=0.0),

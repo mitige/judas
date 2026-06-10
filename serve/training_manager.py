@@ -3,8 +3,11 @@
 import json
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
+
+MAX_AUTORESTARTS = 3
 
 
 class TrainingManager:
@@ -13,9 +16,14 @@ class TrainingManager:
         self.proc: subprocess.Popen | None = None
         self.run_name: str | None = None
         self.started_at: float | None = None
+        self.autorestart = True
+        self.restarts = 0
+        self._manual_stop = False
+        self._last_cfg: dict | None = None
 
     # ------------------------------------------------------------------ ctrl
-    def start(self, cfg: dict, resume: str | None = None) -> dict:
+    def start(self, cfg: dict, resume: str | None = None,
+              autorestart: bool = True, _is_restart: bool = False) -> dict:
         if self.is_running():
             raise RuntimeError("un entraînement tourne déjà")
         name = cfg.get("name", "boxing")
@@ -32,9 +40,36 @@ class TrainingManager:
                                      stdout=log, stderr=subprocess.STDOUT)
         self.run_name = name
         self.started_at = time.time()
+        self.autorestart = autorestart
+        self._manual_stop = False
+        self._last_cfg = cfg
+        if not _is_restart:
+            self.restarts = 0
+        threading.Thread(target=self._watchdog, args=(self.proc,),
+                         daemon=True).start()
         return self.status()
 
+    def _watchdog(self, proc: subprocess.Popen) -> None:
+        """Relance automatiquement (resume latest) un entraînement crashé."""
+        code = proc.wait()
+        if (self._manual_stop or not self.autorestart or code == 0
+                or proc is not self.proc):
+            return
+        if self.restarts >= MAX_AUTORESTARTS or self._last_cfg is None:
+            return
+        time.sleep(5)
+        self.restarts += 1
+        latest = self.root / "runs" / (self.run_name or "boxing") / "latest.pt"
+        self.proc = None
+        try:
+            self.start(self._last_cfg,
+                       resume=str(latest) if latest.exists() else None,
+                       autorestart=True, _is_restart=True)
+        except RuntimeError:
+            pass
+
     def stop(self) -> dict:
+        self._manual_stop = True
         if self.proc is not None:
             self.proc.terminate()
             try:
@@ -69,6 +104,8 @@ class TrainingManager:
             "pid": self.proc.pid if self.is_running() else None,
             "uptime_s": round(time.time() - self.started_at)
                         if self.is_running() and self.started_at else 0,
+            "autorestart": self.autorestart,
+            "restarts": self.restarts,
         }
 
     # ----------------------------------------------------------------- models

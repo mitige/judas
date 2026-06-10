@@ -15,6 +15,10 @@ TINY = {
     "league_frac": 0.5,
     "pool_every": 1,
     "save_every": 1000,
+    "eval_every": 0,
+    "eval_envs": 2,
+    "eval_target_hits": 2,
+    "eval_max_ticks": 30,
     "sim": {"target_hits": 3, "max_ticks": 60, "randomize": False},
     "policy": {"history": 4, "d_model": 32, "n_heads": 2, "n_layers": 1},
     "ppo": {"epochs": 1, "minibatch_size": 16, "amp": False},
@@ -82,6 +86,45 @@ def test_save_load_roundtrip(tiny_trainer, tmp_path):
     t2.load(str(path))
     assert t2.iter == tiny_trainer.iter
     assert abs(t2.league.learner_elo - tiny_trainer.league.learner_elo) < 1e-9
+
+
+def test_policy_mlp_mode():
+    """attention=False -> trunk MLP, mêmes interfaces."""
+    pol = JudasPolicy(PolicyConfig(history=4, d_model=32, n_layers=2,
+                                   attention=False))
+    hist = torch.randn(5, 4, pol.cfg.obs_dim)
+    out = pol.act(hist)
+    assert out["pre"].shape == (5, 2)
+    assert torch.isfinite(out["logp"]).all()
+    raw = {k: out[k] for k in ("pre", "fwd", "strafe", "bins")}
+    logp, entropy, value = pol.evaluate(hist, raw)
+    assert torch.isfinite(logp).all() and torch.isfinite(value).all()
+
+
+def test_auto_eval_logged(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    t = Trainer({**TINY, "eval_every": 1}, device="cpu")
+    t.train_iter()                       # pool créé à l'itération 1
+    m = t.train_iter()
+    assert "eval_first" in m
+    assert 0.0 <= m["eval_first"] <= 1.0
+
+
+def test_metrics_have_automation_fields(tiny_trainer):
+    m = tiny_trainer.train_iter()
+    for k in ("hit_rate", "shaping", "warn_entropy", "total_steps"):
+        assert k in m
+
+
+def test_checkpoint_pruning(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    t = Trainer({**TINY, "keep_ckpts": 3}, device="cpu")
+    for i in range(1, 7):
+        t.iter = i
+        t.save()
+    remaining = sorted(t.run_dir.glob("ckpt_*.pt"))
+    assert len(remaining) == 3
+    assert remaining[-1].name == "ckpt_000006.pt"
 
 
 def test_export_torchscript(tiny_trainer, tmp_path):

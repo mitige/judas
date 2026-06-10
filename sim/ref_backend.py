@@ -60,6 +60,10 @@ class JudasSimRef:
                                self._last_actions[n, i], m.tick_count)
         return out
 
+    def set_reward_dist(self, v: float) -> None:
+        """Shaping de distance modifiable à chaud (decay automatique)."""
+        self.cfg.reward_dist = float(v)
+
     # ------------------------------------------------------------------- API
     def reset(self) -> np.ndarray:
         self._matches = [self._new_match() for _ in range(self.n_envs)]

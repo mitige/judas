@@ -94,6 +94,11 @@ class JudasSim:
                       self.reward, self.done, self.winner, self._params)
         return self.obs, self.reward, self.done, {"winner": self.winner}
 
+    def set_reward_dist(self, v: float) -> None:
+        """Shaping de distance modifiable à chaud (decay automatique)."""
+        self.cfg.reward_dist = float(v)
+        self._params = [float(x) for x in self.cfg.as_floats()]
+
     # ------------------------------------------------------------ inspection
     def raw_state(self) -> dict:
         """État brut (copie CPU) — debug / tests d'équivalence."""

@@ -30,11 +30,12 @@ TANH_EPS = 1e-6
 class PolicyConfig:
     obs_dim: int = OBS_DIM
     history: int = 16
-    d_model: int = 128
+    d_model: int = 128          # taille du cerveau
     n_heads: int = 4
     n_layers: int = 2
     ff_mult: int = 4
     dropout: float = 0.0
+    attention: bool = True      # False -> MLP sur l'historique aplati (plus rapide)
 
 
 class JudasPolicy(nn.Module):
@@ -43,20 +44,29 @@ class JudasPolicy(nn.Module):
         self.cfg = cfg or PolicyConfig()
         c = self.cfg
 
-        self.encoder = nn.Sequential(
-            nn.Linear(c.obs_dim, c.d_model),
-            nn.LayerNorm(c.d_model),
-            nn.GELU(),
-            nn.Linear(c.d_model, c.d_model),
-        )
-        self.pos_emb = nn.Parameter(torch.zeros(1, c.history, c.d_model))
-        layer = nn.TransformerEncoderLayer(
-            d_model=c.d_model, nhead=c.n_heads,
-            dim_feedforward=c.d_model * c.ff_mult,
-            dropout=c.dropout, activation="gelu",
-            batch_first=True, norm_first=True)
-        self.transformer = nn.TransformerEncoder(layer, num_layers=c.n_layers)
-        self.norm = nn.LayerNorm(c.d_model)
+        if c.attention:
+            self.encoder = nn.Sequential(
+                nn.Linear(c.obs_dim, c.d_model),
+                nn.LayerNorm(c.d_model),
+                nn.GELU(),
+                nn.Linear(c.d_model, c.d_model),
+            )
+            self.pos_emb = nn.Parameter(torch.zeros(1, c.history, c.d_model))
+            layer = nn.TransformerEncoderLayer(
+                d_model=c.d_model, nhead=c.n_heads,
+                dim_feedforward=c.d_model * c.ff_mult,
+                dropout=c.dropout, activation="gelu",
+                batch_first=True, norm_first=True)
+            self.transformer = nn.TransformerEncoder(layer, num_layers=c.n_layers)
+            self.norm = nn.LayerNorm(c.d_model)
+            nn.init.normal_(self.pos_emb, std=0.02)
+        else:
+            # trunk MLP : historique aplati, n_layers couches cachées
+            dims = [c.obs_dim * c.history] + [c.d_model] * max(c.n_layers, 1)
+            mlp = []
+            for a, b in zip(dims[:-1], dims[1:]):
+                mlp += [nn.Linear(a, b), nn.LayerNorm(b), nn.GELU()]
+            self.mlp = nn.Sequential(*mlp)
 
         self.mean_head = nn.Linear(c.d_model, 2)        # Δyaw, Δpitch
         self.log_std = nn.Parameter(torch.full((2,), -0.5))
@@ -65,7 +75,6 @@ class JudasPolicy(nn.Module):
         self.bin_head = nn.Linear(c.d_model, 3)         # jump, sprint, attack
         self.value_head = nn.Linear(c.d_model, 1)
 
-        nn.init.normal_(self.pos_emb, std=0.02)
         for head in (self.mean_head, self.fwd_head, self.strafe_head, self.bin_head):
             nn.init.orthogonal_(head.weight, gain=0.01)
             nn.init.zeros_(head.bias)
@@ -74,10 +83,12 @@ class JudasPolicy(nn.Module):
 
     # ------------------------------------------------------------------ core
     def trunk(self, hist: torch.Tensor) -> torch.Tensor:
-        """[B, H, obs] -> [B, d_model] (dernier token après attention)."""
-        x = self.encoder(hist) + self.pos_emb
-        x = self.transformer(x)
-        return self.norm(x[:, -1])
+        """[B, H, obs] -> [B, d_model]."""
+        if self.cfg.attention:
+            x = self.encoder(hist) + self.pos_emb
+            x = self.transformer(x)
+            return self.norm(x[:, -1])
+        return self.mlp(hist.flatten(1))
 
     def heads(self, z: torch.Tensor):
         mean = self.mean_head(z)

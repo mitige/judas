@@ -10,7 +10,9 @@ const D = {
   reward_hit: 1.0, reward_win: 10, reward_dist: 0.002,
   cps_min: 8, cps_max: 16, rot_min: 20, rot_max: 60,
   delay_min: 0, delay_max: 3, spawn_jitter: 2,
-  resume: false,
+  attention: true, d_model: 128, n_layers: 2, n_heads: 4, history: 16,
+  eval_every: 50,
+  resume: false, autorestart: true,
 };
 
 export default function Training({ status }) {
@@ -27,7 +29,12 @@ export default function Training({ status }) {
       await api.trainingStart({
         name: f.name, n_envs: +f.n_envs, rollout_ticks: +f.rollout_ticks,
         total_iters: +f.total_iters, league_frac: +f.league_frac,
-        pool_every: +f.pool_every,
+        pool_every: +f.pool_every, eval_every: +f.eval_every,
+        autorestart: f.autorestart,
+        policy: {
+          attention: f.attention, d_model: +f.d_model,
+          n_layers: +f.n_layers, n_heads: +f.n_heads, history: +f.history,
+        },
         ppo: {
           lr: +f.lr, gamma: +f.gamma, ent_coef: +f.ent_coef, clip: +f.clip,
           epochs: +f.epochs, minibatch_size: +f.minibatch_size,
@@ -69,6 +76,21 @@ export default function Training({ status }) {
       </div>
 
       <div className="panel">
+        <div className="label">brain</div>
+        <div className="grid cols-4">
+          <Field l="size" v={f.d_model} on={set("d_model")} />
+          <Field l="layers" v={f.n_layers} on={set("n_layers")} />
+          <Field l="heads" v={f.n_heads} on={set("n_heads")} />
+          <Field l="history" v={f.history} on={set("history")} />
+        </div>
+        <hr className="sep" />
+        <label className="toggle">
+          <input type="checkbox" checked={f.attention} onChange={set("attention")} />
+          attention
+        </label>
+      </div>
+
+      <div className="panel">
         <div className="label">ppo</div>
         <div className="grid cols-3">
           <Field l="lr" v={f.lr} on={set("lr")} step="0.0001" />
@@ -83,9 +105,10 @@ export default function Training({ status }) {
       <div className="grid cols-2">
         <div className="panel">
           <div className="label">league</div>
-          <div className="grid cols-2">
+          <div className="grid cols-3">
             <Field l="league %" v={f.league_frac} on={set("league_frac")} step="0.05" />
             <Field l="snapshot every" v={f.pool_every} on={set("pool_every")} />
+            <Field l="eval every" v={f.eval_every} on={set("eval_every")} />
           </div>
         </div>
         <div className="panel">
@@ -138,6 +161,10 @@ export default function Training({ status }) {
           <label className="toggle">
             <input type="checkbox" checked={f.resume} onChange={set("resume")} />
             resume latest
+          </label>
+          <label className="toggle">
+            <input type="checkbox" checked={f.autorestart} onChange={set("autorestart")} />
+            auto restart
           </label>
           {running && (
             <span className="tag green">

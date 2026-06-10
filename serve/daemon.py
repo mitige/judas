@@ -67,7 +67,8 @@ def status():
 @app.post("/training/start")
 def training_start(cfg: dict):
     resume = cfg.pop("resume", None)
-    return training.start(cfg, resume=resume)
+    autorestart = bool(cfg.pop("autorestart", True))
+    return training.start(cfg, resume=resume, autorestart=autorestart)
 
 
 @app.post("/training/stop")

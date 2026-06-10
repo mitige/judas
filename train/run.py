@@ -32,6 +32,13 @@ DEFAULT_CFG = {
     "league_frac": 0.3,
     "pool_every": 50,
     "save_every": 25,
+    "keep_ckpts": 10,            # rétention : derniers N + 1 sur 500
+    "eval_every": 50,            # matchs d'éval auto vs anciens snapshots
+    "eval_envs": 128,
+    "eval_target_hits": 20,
+    "eval_max_ticks": 1500,
+    "shaping_hit_rate": 5.0,     # hits/min déclenchant le decay du shaping
+    "shaping_decay_iters": 100,
     "seed": 0,
     "sim": {},
     "policy": {},
@@ -76,6 +83,14 @@ class Trainer:
         self.iter = 0
         self.total_steps = 0          # agent-steps cumulés (tous agents)
 
+        # automatisations
+        self._shaping_base = self.sim_cfg.reward_dist
+        self._shaping_start: int | None = None   # itération de début du decay
+        self._hit_streak = 0
+        self._entropy_hist: list[float] = []
+        self._eval_sim = None
+        self._eval_opp: JudasPolicy | None = None
+
         self.run_dir = Path("runs") / self.cfg["name"]
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self._tb = None
@@ -96,13 +111,14 @@ class Trainer:
             return x.to(self.device)
         return torch.as_tensor(np.asarray(x)).to(self.device)
 
-    def _sim_step(self, actions: torch.Tensor):
-        if hasattr(self.sim, "ext"):                     # backend CUDA
-            obs, rew, done, info = self.sim.step(actions)
+    def _sim_step(self, actions: torch.Tensor, sim=None):
+        sim = sim or self.sim
+        if hasattr(sim, "ext"):                          # backend CUDA
+            obs, rew, done, info = sim.step(actions)
             return (obs, rew.clone(), done.bool().clone(),
                     info["winner"].clone())
         a = actions.cpu().numpy()
-        obs, rew, done, info = self.sim.step(a)
+        obs, rew, done, info = sim.step(a)
         return (self._to_torch(obs), self._to_torch(rew),
                 self._to_torch(done).bool(), self._to_torch(info["winner"]))
 
@@ -239,9 +255,23 @@ class Trainer:
         if self.iter % self.cfg["save_every"] == 0:
             self.save()
 
+        lm = learner_mask
+        # hits/minute par agent learner (proxy : reward d'un hit ~ +1)
+        hit_rate = float((buf.reward[:, lm] > 0.9).float().mean()) * 1200.0
+        shaping = self._auto_shaping(hit_rate)
+        warn_entropy = self._entropy_guard(stats["entropy"])
+
+        # éval automatique vs anciens snapshots
+        evals = {}
+        if (self.cfg["eval_every"] > 0 and self.league.pool
+                and self.iter % self.cfg["eval_every"] == 0):
+            evals["eval_first"] = self._evaluate(self.league.pool[0]["state_dict"])
+            if len(self.league.pool) > 1:
+                evals["eval_past"] = self._evaluate(
+                    self.league.pool[-1]["state_dict"])
+
         dt = time.perf_counter() - t0
         self.total_steps += self.T * self.N * 2
-        lm = learner_mask
         metrics = {
             "iter": self.iter,
             "total_steps": self.total_steps,
@@ -252,6 +282,10 @@ class Trainer:
             "league_winrate": (ep["wins"] + 0.5 * ep["draws"])
                               / max(ep["wins"] + ep["losses"] + ep["draws"], 1),
             "matches": ep["matches"],
+            "hit_rate": round(hit_rate, 2),
+            "shaping": round(shaping, 6),
+            "warn_entropy": warn_entropy,
+            **{k: round(v, 4) for k, v in evals.items()},
             **{k: round(v, 5) for k, v in stats.items()},
             "time": round(dt, 2),
             "time_collect": round(t_collect, 2),
@@ -259,6 +293,85 @@ class Trainer:
         }
         self._log(metrics)
         return metrics
+
+    # -------------------------------------------------------- automatisations
+    def _auto_shaping(self, hit_rate: float) -> float:
+        """Decay automatique du shaping de distance : une fois que les agents
+        frappent régulièrement (hit_rate soutenu), le shaping -> 0 linéairement.
+        Retourne la valeur courante de reward_dist."""
+        if self._shaping_base <= 0:
+            return 0.0
+        if self._shaping_start is None:
+            if hit_rate >= self.cfg["shaping_hit_rate"]:
+                self._hit_streak += 1
+            else:
+                self._hit_streak = 0
+            if self._hit_streak >= 10:
+                self._shaping_start = self.iter
+            return self._shaping_base
+        frac = (self.iter - self._shaping_start) / max(
+            self.cfg["shaping_decay_iters"], 1)
+        value = self._shaping_base * max(1.0 - frac, 0.0)
+        self.sim.set_reward_dist(value)
+        return value
+
+    def _entropy_guard(self, entropy: float) -> int:
+        """1 si l'entropie vient de s'effondrer (< 50% de la médiane récente)."""
+        warn = 0
+        if len(self._entropy_hist) >= 20:
+            med = sorted(self._entropy_hist)[len(self._entropy_hist) // 2]
+            if entropy < 0.5 * med:
+                warn = 1
+        self._entropy_hist.append(entropy)
+        if len(self._entropy_hist) > 50:
+            self._entropy_hist.pop(0)
+        return warn
+
+    @torch.no_grad()
+    def _evaluate(self, opp_state_dict: dict) -> float:
+        """Winrate du learner contre un snapshot, sur des matchs courts."""
+        n = self.cfg["eval_envs"]
+        if self._eval_sim is None:
+            s = self.sim_cfg
+            eval_cfg = SimConfig(
+                arena_size_x=s.arena_size_x, arena_size_z=s.arena_size_z,
+                target_hits=self.cfg["eval_target_hits"],
+                max_ticks=self.cfg["eval_max_ticks"],
+                speed_amplifier=s.speed_amplifier,
+                cps_min=(s.cps_min + s.cps_max) / 2,
+                cps_max=(s.cps_min + s.cps_max) / 2,
+                rot_speed_min=(s.rot_speed_min + s.rot_speed_max) / 2,
+                rot_speed_max=(s.rot_speed_min + s.rot_speed_max) / 2,
+                randomize=False,
+            )
+            self._eval_sim = make_sim(n, eval_cfg, seed=self.cfg["seed"] + 1,
+                                      force_cpu=self.device.type != "cuda")
+            self._eval_opp = JudasPolicy(self.pol_cfg).to(self.device)
+        self._eval_opp.load_state_dict(opp_state_dict)
+        self._eval_opp.eval()
+
+        obs = self._to_torch(self._eval_sim.reset()).float()    # [n, 2, D]
+        hist = torch.zeros(n, 2, self.H, OBS_DIM, device=self.device)
+        hist[:, :, -1] = obs
+        score, finished = 0.0, 0
+        for _ in range(self.cfg["eval_max_ticks"]):
+            with torch.autocast("cuda", dtype=torch.float16, enabled=self._use_amp):
+                a0 = self.policy.act(hist[:, 0])
+                a1 = self._eval_opp.act(hist[:, 1])
+            actions = torch.stack(
+                [to_sim_actions({k: a0[k] for k in ("pre", "fwd", "strafe", "bins")}),
+                 to_sim_actions({k: a1[k] for k in ("pre", "fwd", "strafe", "bins")})],
+                dim=1)
+            obs, _, done, winner = self._sim_step(actions, sim=self._eval_sim)
+            hist = torch.roll(hist, shifts=-1, dims=2)
+            hist[done.bool()] = 0.0
+            hist[:, :, -1] = obs.float()
+            for w in winner[done.bool()].tolist():
+                finished += 1
+                score += 1.0 if w == 0 else (0.5 if w == -1 else 0.0)
+            if finished >= n:
+                break
+        return score / finished if finished else 0.5
 
     def train(self, iters: int | None = None) -> None:
         total = iters if iters is not None else self.cfg["total_iters"]
@@ -282,7 +395,22 @@ class Trainer:
         }, path)
         torch.save(torch.load(path, map_location="cpu", weights_only=False),
                    self.run_dir / "latest.pt")
+        self._prune_checkpoints()
         return path
+
+    def _prune_checkpoints(self) -> None:
+        """Garde les `keep_ckpts` derniers + 1 checkpoint sur 500 (jalons)."""
+        keep = self.cfg["keep_ckpts"]
+        ckpts = sorted(self.run_dir.glob("ckpt_*.pt"))
+        if len(ckpts) <= keep:
+            return
+        for p in ckpts[:-keep]:
+            try:
+                it = int(p.stem.split("_")[1])
+            except (IndexError, ValueError):
+                continue
+            if it % 500 != 0:
+                p.unlink(missing_ok=True)
 
     def load(self, path: str) -> None:
         ckpt = torch.load(path, map_location=self.device, weights_only=False)

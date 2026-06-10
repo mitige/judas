@@ -41,6 +41,17 @@ export default function Dashboard({ status, metrics }) {
               trend={series(metrics, "loss_v")} />
       </div>
 
+      <div className="grid cols-4">
+        <Stat label="eval vs first" value={pct(last(metrics, "eval_first"))}
+              trend={series(metrics, "eval_first")} />
+        <Stat label="eval vs past" value={pct(last(metrics, "eval_past"))}
+              trend={series(metrics, "eval_past")} />
+        <Stat label="hit rate /min" value={fmt(last(metrics, "hit_rate"), 1)}
+              trend={series(metrics, "hit_rate")} />
+        <Stat label="shaping" value={fmt(last(metrics, "shaping"), 4)}
+              trend={series(metrics, "shaping")} />
+      </div>
+
       <div className="grid cols-3">
         <div className="panel">
           <div className="label">gpu</div>

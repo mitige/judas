@@ -557,6 +557,23 @@ JD void tick_one(const StatePtrs &S, const SimParams &pr, const float *actions,
             rw[i] -= pr.r_dist * (float)jsqrt(ddx * ddx + ddy * ddy + ddz * ddz);
         }
     }
+    // bonus combo : chaîne de hits sans en recevoir, fenêtre combo_window
+    // (zéro-somme ; règles : docs/specs/2026-06-11-combo-reward-design.md,
+    //  miroir exact de combo_step dans sim/ref_backend.py)
+    for (int i = 0; i < 2; ++i) {
+        if (dealt[i]) {
+            pl[i].combo = (tick - pl[i].last_hit <= (int)pr.combo_window)
+                              ? pl[i].combo + 1 : 1;
+            pl[i].last_hit = tick;
+            int mc = pl[i].combo - 1;
+            if (mc > (int)pr.combo_cap) mc = (int)pr.combo_cap;
+            float bonus = pr.r_combo * (float)mc;
+            rw[i] += bonus;
+            rw[1 - i] -= bonus;
+        }
+    }
+    for (int i = 0; i < 2; ++i)
+        if (dealt[1 - i]) pl[i].combo = 0;
     int win = -2;
     if (pl[0].hits >= (int)pr.target_hits) win = 0;
     if (pl[1].hits >= (int)pr.target_hits) win = 1;

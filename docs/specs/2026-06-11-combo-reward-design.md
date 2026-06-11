@@ -76,9 +76,9 @@ contenu vs `reward_win=10`. Les trois champs sont ajoutés à `as_floats()`
   9 (`last_hit`), commentaire de layout mis à jour.
 - `reset_match` : `combo = last_hit = 0`.
 - `tick_one`, bloc 6 (reward) : implémentation des règles ci-dessus à partir
-  de `dealt[i]` (déjà disponible), gardée par `pr.r_combo != 0.0f`
-  (les compteurs sont mis à jour même si `r_combo == 0` pour garder un état
-  cohérent, seul le bonus est conditionnel — coût négligeable).
+  de `dealt[i]` (déjà disponible) ; les compteurs sont mis à jour
+  inconditionnellement et le bonus `r_combo * mult` est naturellement nul
+  quand `r_combo == 0` — coût négligeable, pas de garde nécessaire.
 
 ### `sim/csrc/boxing_kernel.cu`
 - Parsing du vecteur de params : 3 floats supplémentaires (suivre le pattern
@@ -107,7 +107,7 @@ contenu vs `reward_win=10`. Les trois champs sont ajoutés à `as_floats()`
 ### `train/run.py`
 - Métrique `combo_hits` (même style que `sprint_hits`, train-side) :
   - `hits_bounded = (reward > 0.9) & (reward < 5.0)` (exclut le tick de win) ;
-  - `combo_mask = reward > 1.0 + 0.5 * r_combo` ;
+  - `combo_mask = reward > reward_hit + 0.5 * r_combo` ;
   - `combo_hits = (hits_bounded & combo_mask).sum() / hits_bounded.sum().clamp(min=1)` ;
   - vaut 0 si `reward_combo == 0`. Le bruit du shaping distance
     (−0.002·d ≈ −0.006) est négligeable devant les seuils.

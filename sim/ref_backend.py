@@ -65,6 +65,9 @@ class JudasSimRef:
         )
         self._matches: list[BoxingMatch] = []
         self._last_actions = np.zeros((n_envs, 2, ACTION_DIM), dtype=np.float32)
+        # état combo par env : longueur de chaîne et tick du dernier hit
+        self._combo = np.zeros((n_envs, 2), dtype=np.int32)
+        self._last_hit = np.zeros((n_envs, 2), dtype=np.int32)
 
     # ----------------------------------------------------------------- utils
     def _new_match(self) -> BoxingMatch:
@@ -102,6 +105,8 @@ class JudasSimRef:
     def reset(self) -> np.ndarray:
         self._matches = [self._new_match() for _ in range(self.n_envs)]
         self._last_actions[:] = 0.0
+        self._combo[:] = 0
+        self._last_hit[:] = 0
         obs = np.empty((self.n_envs, 2, OBS_DIM), dtype=np.float32)
         for n in range(self.n_envs):
             obs[n] = self._obs_one(n)
@@ -132,11 +137,20 @@ class JudasSimRef:
                 ))
             hits_before = [m.players[0].hits, m.players[1].hits]
             m.step((acts[0], acts[1]))
+            dealt = [m.players[k].hits - hits_before[k] for k in range(2)]
+
+            # bonus combo (zéro-somme) — mêmes règles que le kernel CUDA
+            cb, lh, m0, m1 = combo_step(self._combo[n], self._last_hit[n],
+                                        m.tick_count, dealt[0] > 0,
+                                        dealt[1] > 0, c.combo_window,
+                                        c.combo_cap)
+            self._combo[n], self._last_hit[n] = cb, lh
+            bonus = (c.reward_combo * m0, c.reward_combo * m1)
 
             for i in range(2):
-                dealt = m.players[i].hits - hits_before[i]
-                taken = m.players[1 - i].hits - hits_before[1 - i]
-                reward[n, i] = c.reward_hit * dealt + c.reward_hurt * taken
+                reward[n, i] = (c.reward_hit * dealt[i]
+                                + c.reward_hurt * dealt[1 - i]
+                                + bonus[i] - bonus[1 - i])
                 if c.reward_dist != 0.0:
                     p, q = m.players[i], m.players[1 - i]
                     d = ((p.x - q.x) ** 2 + (p.y - q.y) ** 2 + (p.z - q.z) ** 2) ** 0.5
@@ -150,6 +164,8 @@ class JudasSimRef:
                     reward[n, 1 - m.winner] -= c.reward_win
                 self._matches[n] = self._new_match()
                 self._last_actions[n] = 0.0
+                self._combo[n] = 0
+                self._last_hit[n] = 0
             else:
                 self._last_actions[n] = actions[n]
 

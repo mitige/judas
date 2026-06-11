@@ -137,17 +137,36 @@ def test_ref_backend_combo_off_par_defaut():
 
 
 # ----------------------------------- équivalence kernel (CPU, double) <-> ref
+def _build_cpu_check(tmp_path):
+    """Compile le harnais CPU (boxing_core.h en double) -> chemin du binaire."""
+    binary = tmp_path / "judas_cpu_check_combo"
+    subprocess.run(
+        ["g++", "-O2", "-I", str(ROOT / "sim" / "csrc"), "-DJUDAS_DOUBLE",
+         "-o", str(binary), str(ROOT / "tools" / "cpu_check.cpp")],
+        check=True, capture_output=True)
+    return binary
+
+
+def _run_cpu_check(binary, tmp_path, cfg, acts):
+    """Exécute le harnais sur les actions [T,N,2,7] -> octets bruts de sortie."""
+    n_ticks, n_envs = acts.shape[0], acts.shape[1]
+    actions_f = tmp_path / "actions.bin"
+    acts.astype(np.float32).tofile(actions_f)
+    params_f = tmp_path / "params.txt"
+    params_f.write_text("\n".join(repr(float(v)) for v in cfg.as_floats()))
+    out_f = tmp_path / "out.bin"
+    subprocess.run([str(binary), str(n_envs), str(n_ticks),
+                    str(actions_f), str(out_f), str(params_f)], check=True)
+    return np.fromfile(out_f, dtype=np.uint8)
+
+
 @pytest.mark.skipif(shutil.which("g++") is None, reason="g++ requis")
 def test_kernel_combo_matches_ref(tmp_path):
     """Le bloc combo du kernel (boxing_core.h) reproduit exactement le
     backend de référence avec reward_combo actif, sur actions aléatoires."""
     from sim.verify import random_actions
 
-    binary = tmp_path / "judas_cpu_check_combo"
-    subprocess.run(
-        ["g++", "-O2", "-I", str(ROOT / "sim" / "csrc"), "-DJUDAS_DOUBLE",
-         "-o", str(binary), str(ROOT / "tools" / "cpu_check.cpp")],
-        check=True, capture_output=True)
+    binary = _build_cpu_check(tmp_path)
 
     n_envs, n_ticks = 8, 1200
     # spawn_gap=1.0 + combo_window=60 : indispensables pour que des chaînes
@@ -160,15 +179,7 @@ def test_kernel_combo_matches_ref(tmp_path):
     acts = np.stack([random_actions(rng, n_envs) for _ in range(n_ticks)])
     # attaque permanente : densifie les hits -> chaines jusqu'au cap
     acts[..., 6] = 1.0
-    actions_f = tmp_path / "actions.bin"
-    acts.astype(np.float32).tofile(actions_f)
-    params_f = tmp_path / "params.txt"
-    params_f.write_text("\n".join(repr(float(v)) for v in cfg.as_floats()))
-    out_f = tmp_path / "out.bin"
-    subprocess.run([str(binary), str(n_envs), str(n_ticks),
-                    str(actions_f), str(out_f), str(params_f)], check=True)
-
-    raw = np.fromfile(out_f, dtype=np.uint8)
+    raw = _run_cpu_check(binary, tmp_path, cfg, acts)
     obs_sz = n_envs * 2 * 48 * 4
     rew_sz = n_envs * 2 * 4
     off = obs_sz  # saute les obs de reset
@@ -198,3 +209,53 @@ def test_kernel_combo_matches_ref(tmp_path):
 
     assert off == raw.nbytes
     assert combo_ticks > 0, "aucun hit en chaîne sur 600 ticks — test inopérant"
+
+
+@pytest.mark.skipif(shutil.which("g++") is None, reason="g++ requis")
+def test_kernel_combo_cap_matches_ref(tmp_path):
+    """Poursuite scriptée (agent 0 avance+attaque, agent 1 passif) à travers
+    le harnais CPU : la chaîne dépasse combo_cap -> la branche de clamp du
+    kernel est réellement exécutée et reste équivalente au backend ref."""
+    binary = _build_cpu_check(tmp_path)
+
+    n_envs, n_ticks = 1, 400
+    # 12 hits enchaînés : la chaîne dépasse largement le cap de 5
+    cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=12,
+                    max_ticks=400, reward_combo=0.25, combo_window=60,
+                    combo_cap=5)
+
+    acts = np.zeros((n_ticks, n_envs, 2, 7), dtype=np.float32)
+    acts[:, :, 0, 2] = 1.0   # forward (poursuite du knockback)
+    acts[:, :, 0, 6] = 1.0   # attack à chaque tick
+    raw = _run_cpu_check(binary, tmp_path, cfg, acts)
+    obs_sz = n_envs * 2 * 48 * 4
+    rew_sz = n_envs * 2 * 4
+    off = obs_sz  # saute les obs de reset
+
+    ref = JudasSimRef(n_envs, cfg)
+    ref.reset()
+    rewards_a0 = []   # rewards de l'agent 0 hors ticks done
+    for t in range(n_ticks):
+        obs_c = raw[off:off + obs_sz].view(np.float32)
+        off += obs_sz
+        rew_c = raw[off:off + rew_sz].view(np.float32).reshape(n_envs, 2)
+        off += rew_sz
+        done_c = raw[off:off + n_envs].astype(bool)
+        off += n_envs
+        win_c = raw[off:off + n_envs * 4].view(np.int32)
+        off += n_envs * 4
+
+        obs_r, rew_r, done_r, info = ref.step(acts[t])
+        np.testing.assert_allclose(obs_c.reshape(n_envs, 2, 48), obs_r,
+                                   atol=1e-6, err_msg=f"obs, tick {t}")
+        np.testing.assert_allclose(rew_c, rew_r, atol=1e-6,
+                                   err_msg=f"reward, tick {t}")
+        assert np.array_equal(done_c, done_r), f"done, tick {t}"
+        assert np.array_equal(win_c, info["winner"]), f"winner, tick {t}"
+        if not done_r[0]:
+            rewards_a0.append(float(rew_r[0, 0]))
+
+    assert off == raw.nbytes
+    # preuve que le clamp est atteint : reward de hit plafonné à hit + cap*combo
+    assert max(rewards_a0) == pytest.approx(
+        cfg.reward_hit + cfg.reward_combo * cfg.combo_cap)

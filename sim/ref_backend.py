@@ -23,6 +23,32 @@ def _mid(a: float, b: float) -> float:
     return (a + b) / 2.0
 
 
+def combo_step(combo, last_hit, tick, dealt0, dealt1, window, cap):
+    """Règles combo (docs/specs/2026-06-11-combo-reward-design.md).
+
+    combo/last_hit : séquences de 2 ints (état des deux agents)
+    tick           : tick post-incrément du match
+    dealt0/dealt1  : l'agent i a-t-il porté un hit ce tick
+    -> (combo', last_hit', mult0, mult1) avec mult_i = min(combo'-1, cap) si
+       hit, 0 sinon. L'appelant applique bonus_i = reward_combo * mult_i
+    (zéro-somme : +bonus_i pour i, -bonus_i pour 1-i). Le kernel CUDA
+    (boxing_core.h, bloc 6 de tick_one) implémente exactement ces règles.
+    """
+    combo = [int(combo[0]), int(combo[1])]
+    last_hit = [int(last_hit[0]), int(last_hit[1])]
+    dealt = (dealt0, dealt1)
+    mult = [0, 0]
+    for i in range(2):
+        if dealt[i]:
+            combo[i] = combo[i] + 1 if tick - last_hit[i] <= window else 1
+            last_hit[i] = tick
+            mult[i] = min(combo[i] - 1, cap)
+    for i in range(2):
+        if dealt[1 - i]:
+            combo[i] = 0
+    return combo, last_hit, mult[0], mult[1]
+
+
 class JudasSimRef:
     """Même contrat que sim.JudasSim, sur CPU via sim_ref."""
 

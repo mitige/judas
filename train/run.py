@@ -287,7 +287,13 @@ class Trainer:
 
         lm = learner_mask
         # hits/minute par agent learner (proxy : reward d'un hit ~ +1)
-        hit_rate = float((buf.reward[:, lm] > 0.9).float().mean()) * 1200.0
+        hits_mask = buf.reward[:, lm] > 0.9
+        hit_rate = float(hits_mask.float().mean()) * 1200.0
+        # % de hits portés en sprint+forward (le "Z-tap" mesurable : un bon
+        # joueur converge vers ~1.0 — chaque hit profite du KB bonus sprint)
+        sprint_act = (buf.bins[:, lm, 1] > 0.5) & (buf.fwd[:, lm] == 2)
+        sprint_hit = float((hits_mask & sprint_act).float().sum()
+                           / hits_mask.float().sum().clamp(min=1.0))
         self._update_ramp(hit_rate)
         shaping = self._auto_shaping()
         spawn_gap = self._auto_curriculum()
@@ -326,6 +332,7 @@ class Trainer:
                               / max(ep["wins"] + ep["losses"] + ep["draws"], 1),
             "matches": ep["matches"],
             "hit_rate": round(hit_rate, 2),
+            "sprint_hits": round(sprint_hit, 4),
             "shaping": round(shaping, 6),
             "spawn_gap": round(spawn_gap, 2),
             "ramp": round(self._ramp_pos, 3),

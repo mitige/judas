@@ -81,6 +81,7 @@ export default function Dashboard({ status, metrics }) {
           <KV k="matches" v={fmt(last(metrics, "matches"))} />
           <KV k="shaping" v={fmt(last(metrics, "shaping"), 4)} />
           <KV k="spawn gap" v={fmt(last(metrics, "spawn_gap"), 1)} />
+          <KV k="sprint hits" v={pct(last(metrics, "sprint_hits"))} hl />
         </div>
         <div className="panel">
           <div className="label">live</div>

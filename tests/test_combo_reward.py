@@ -149,7 +149,7 @@ def test_kernel_combo_matches_ref(tmp_path):
          "-o", str(binary), str(ROOT / "tools" / "cpu_check.cpp")],
         check=True, capture_output=True)
 
-    n_envs, n_ticks = 8, 600
+    n_envs, n_ticks = 8, 1200
     # spawn_gap=1.0 + combo_window=60 : indispensables pour que des chaînes
     # de hits se forment avec des actions aléatoires (sinon test inopérant)
     cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=15,
@@ -158,6 +158,8 @@ def test_kernel_combo_matches_ref(tmp_path):
 
     rng = np.random.default_rng(123)
     acts = np.stack([random_actions(rng, n_envs) for _ in range(n_ticks)])
+    # attaque permanente : densifie les hits -> chaines jusqu'au cap
+    acts[..., 6] = 1.0
     actions_f = tmp_path / "actions.bin"
     acts.astype(np.float32).tofile(actions_f)
     params_f = tmp_path / "params.txt"

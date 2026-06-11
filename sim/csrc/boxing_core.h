@@ -117,6 +117,7 @@ struct SimParams {
     float r_hit, r_hurt, r_win, r_dist;
     float randomize;
     float spawn_gap;     // demi-distance de spawn (0 = arène/3)
+    float kb_h, kb_v, kb_idle;   // knockback custom (1.0 = vanilla)
 };
 
 // État d'un agent en registres
@@ -261,21 +262,22 @@ JD bool can_hit(const P &a, const P &t) {
     return dist >= R0;
 }
 
-JD void knock_back(P &t, jreal rx, jreal rz) {
+JD void knock_back(P &t, jreal rx, jreal rz, jreal kb_h, jreal kb_v) {
     jreal f = jsqrt(rx * rx + rz * rz);
     if (f < (jreal)1.0e-4) return;
     t.vx /= R2; t.vz /= R2;
-    t.vx -= rx / f * KNOCKBACK_STRENGTH;
-    t.vz -= rz / f * KNOCKBACK_STRENGTH;
+    t.vx -= rx / f * KNOCKBACK_STRENGTH * kb_h;
+    t.vz -= rz / f * KNOCKBACK_STRENGTH * kb_h;
     if (t.og) {
         t.vy /= R2;
-        t.vy += KNOCKBACK_STRENGTH;
-        if (t.vy > KNOCKBACK_Y_CAP) t.vy = KNOCKBACK_Y_CAP;
+        t.vy += KNOCKBACK_STRENGTH * kb_v;
+        if (t.vy > KNOCKBACK_Y_CAP * kb_v) t.vy = KNOCKBACK_Y_CAP * kb_v;
     }
 }
 
-// retourne 1 si hit comptabilisé
-JD int try_attack(P &a, P &t) {
+// retourne 1 si hit comptabilisé. kb custom : 1.0 = vanilla exact
+JD int try_attack(P &a, P &t, jreal kb_h, jreal kb_v, jreal kb_idle,
+                  int target_idle) {
     if (a.ccd > 0) return 0;
     int cd = (int)(20.0 / (double)a.h_cps + 0.5);
     a.ccd = cd < 1 ? 1 : cd;
@@ -283,12 +285,14 @@ JD int try_attack(P &a, P &t) {
     if (t.hurt > HURT_REHIT) return 0;
     t.hurt = MAX_HURT;
     a.hits += 1;
-    knock_back(t, a.x - t.x, a.z - t.z);
+    jreal eff_h = kb_h * (target_idle ? kb_idle : R1);
+    jreal eff_v = kb_v * (target_idle ? kb_idle : R1);
+    knock_back(t, a.x - t.x, a.z - t.z, eff_h, eff_v);
     if (a.spr) {
         jreal yr = a.yaw * DEG2RAD;
-        t.vx += -jsin(yr) * SPRINT_KB_H;
-        t.vy += SPRINT_KB_Y;
-        t.vz += jcos(yr) * SPRINT_KB_H;
+        t.vx += -jsin(yr) * SPRINT_KB_H * eff_h;
+        t.vy += SPRINT_KB_Y * eff_v;
+        t.vz += jcos(yr) * SPRINT_KB_H * eff_h;
         a.vx *= ATTACKER_SLOWDOWN;
         a.vz *= ATTACKER_SLOWDOWN;
         a.spr = 0;
@@ -521,7 +525,11 @@ JD void tick_one(const StatePtrs &S, const SimParams &pr, const float *actions,
     // 4. attaques (séquentiel agent 0 puis 1, comme sim_ref)
     int dealt[2] = {0, 0};
     for (int i = 0; i < 2; ++i)
-        if (atk[i]) dealt[i] = try_attack(pl[i], pl[1 - i]);
+        if (atk[i])
+            dealt[i] = try_attack(pl[i], pl[1 - i],
+                                  (jreal)pr.kb_h, (jreal)pr.kb_v,
+                                  (jreal)pr.kb_idle,
+                                  fwd[1 - i] == 0 && strafe[1 - i] == 0);
 
     // 5. mouvement
     for (int i = 0; i < 2; ++i)

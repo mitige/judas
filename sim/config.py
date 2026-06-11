@@ -24,6 +24,11 @@ class SimConfig:
     spawn_jitter: float = 0.0           # jitter horizontal max (blocs)
     spawn_gap: float = 0.0              # demi-distance de spawn (0 = arène/3)
 
+    # Knockback custom (plugins serveur type CustomKB) — 1.0 = vanilla
+    kb_h_mult: float = 1.0              # multiplicateur horizontal
+    kb_v_mult: float = 1.0              # multiplicateur vertical
+    kb_idle_mult: float = 1.0           # mult. si la victime est immobile (sans input)
+
     # Reward
     reward_hit: float = 1.0
     reward_hurt: float = -1.0
@@ -46,6 +51,7 @@ class SimConfig:
             self.reward_hit, self.reward_hurt, self.reward_win, self.reward_dist,
             1.0 if self.randomize else 0.0,
             self.spawn_gap,
+            self.kb_h_mult, self.kb_v_mult, self.kb_idle_mult,
         ]
 
 

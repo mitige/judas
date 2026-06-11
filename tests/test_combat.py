@@ -70,6 +70,23 @@ def test_knockback_halves_existing_velocity():
     assert abs(t.vz - (-0.3 + 0.4)) < 1e-9
 
 
+def test_knockback_custom_multipliers():
+    """KB custom (plugins serveur) : h x0.9055, v x0.8835, idle x0.6."""
+    a, t = duo(dist=2.0)
+    try_attack(a, t, 0, kb_h=0.9055, kb_v=0.8835)
+    assert abs(t.vz - 0.4 * 0.9055) < 1e-9
+    assert abs(t.vy - 0.4 * 0.8835) < 1e-9
+
+    a2, t2 = duo(dist=2.0)
+    try_attack(a2, t2, 0, kb_h=1.0, kb_v=1.0, kb_idle=0.6, target_idle=True)
+    assert abs(t2.vz - 0.4 * 0.6) < 1e-9
+    assert abs(t2.vy - 0.4 * 0.6) < 1e-9
+
+    a3, t3 = duo(dist=2.0)          # idle mais victime avec input -> vanilla
+    try_attack(a3, t3, 0, kb_idle=0.6, target_idle=False)
+    assert abs(t3.vz - 0.4) < 1e-9
+
+
 def test_knockback_airborne_no_vertical_boost():
     a, t = duo(dist=2.0)
     t.on_ground = False

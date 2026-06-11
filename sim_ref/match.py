@@ -108,8 +108,12 @@ class BoxingMatch:
         # 4. attaques sur instantané pré-mouvement (symétrique)
         for i, p in enumerate(self.players):
             if applied[i].attack:
+                tgt = applied[1 - i]
                 try_attack(p, self.players[1 - i],
-                           cfg.humanization[i].click_cooldown_ticks)
+                           cfg.humanization[i].click_cooldown_ticks,
+                           kb_h=cfg.kb_h_mult, kb_v=cfg.kb_v_mult,
+                           kb_idle=cfg.kb_idle_mult,
+                           target_idle=(tgt.forward == 0 and tgt.strafe == 0))
 
         # 5. mouvement
         for i, p in enumerate(self.players):

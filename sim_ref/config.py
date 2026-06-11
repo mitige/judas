@@ -29,6 +29,9 @@ class BoxingConfig:
     arena_size_x: float = 18.0      # murs à x=0 et x=arena_size_x
     arena_size_z: float = 18.0
     spawn_gap: float = 0.0          # demi-distance de spawn (0 = arène/3)
+    kb_h_mult: float = 1.0          # knockback custom : mult. horizontal
+    kb_v_mult: float = 1.0          # knockback custom : mult. vertical
+    kb_idle_mult: float = 1.0       # mult. si victime immobile (1.0 = vanilla)
     target_hits: int = 100          # premier à N hits gagne
     max_ticks: int = 20 * 60 * 5    # durée max d'un match (5 min)
     speed_amplifier: int = 1        # Speed II

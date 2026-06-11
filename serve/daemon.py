@@ -135,6 +135,9 @@ async def arena_load(body: dict):
         arena_size=float(body.get("arena_size", 18.0)),
         target_hits=int(body.get("target_hits", 100)),
         sample=bool(body.get("sample", True)),
+        kb_h=float(body.get("kb_h", 1.0)),
+        kb_v=float(body.get("kb_v", 1.0)),
+        kb_idle=float(body.get("kb_idle", 1.0)),
     )
 
 

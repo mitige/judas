@@ -65,6 +65,7 @@ class ArenaSession:
         self.wins = [0, 0]
         self.draws = 0
         self.matches = 0
+        self.clicks = [0, 0]      # clics décidés (diagnostic "l'IA attaque-t-elle ?")
         self.cfg = SimConfig(randomize=False)
         self._hist = None
         self._last_obs = None
@@ -78,13 +79,16 @@ class ArenaSession:
     # ------------------------------------------------------------------ setup
     def load(self, model_a: str, model_b: str, *, cps: float = 12.0,
              rot_speed: float = 40.0, arena_size: float = 18.0,
-             target_hits: int = 100, sample: bool = True) -> dict:
+             target_hits: int = 100, sample: bool = True,
+             kb_h: float = 1.0, kb_v: float = 1.0,
+             kb_idle: float = 1.0) -> dict:
         self.agents = [_Agent(model_a, self.device), _Agent(model_b, self.device)]
         self.cfg = SimConfig(
             arena_size_x=arena_size, arena_size_z=arena_size,
             target_hits=target_hits, max_ticks=20 * 60 * 5,
             cps_min=cps, cps_max=cps,
             rot_speed_min=rot_speed, rot_speed_max=rot_speed,
+            kb_h_mult=kb_h, kb_v_mult=kb_v, kb_idle_mult=kb_idle,
             randomize=False,
         )
         self.sample = sample
@@ -116,6 +120,9 @@ class ArenaSession:
         for i, agent in enumerate(self.agents):
             actions[0, i] = agent.act(self._hist[i], self.sample)
         self._last_attack = [bool(actions[0, i, 6] > 0.5) for i in range(2)]
+        for i in range(2):
+            if self._last_attack[i]:
+                self.clicks[i] += 1
 
         hits_before = [p.hits for p in self.sim._matches[0].players]
         obs, reward, done, info = self.sim.step(actions)
@@ -164,6 +171,7 @@ class ArenaSession:
             "wins": self.wins,
             "draws": self.draws,
             "matches": self.matches,
+            "clicks": self.clicks,
             "arena": {"sx": self.cfg.arena_size_x, "sz": self.cfg.arena_size_z},
             "target_hits": self.cfg.target_hits,
             "speed": self.speed,

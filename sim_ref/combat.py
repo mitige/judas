@@ -79,20 +79,22 @@ class AttackResult:
     swung: bool = False            # clic consommé (même raté)
 
 
-def knock_back(target: PlayerState, ratio_x: float, ratio_z: float) -> None:
-    """EntityLivingBase.knockBack(attacker, 0.4, dx, dz)."""
+def knock_back(target: PlayerState, ratio_x: float, ratio_z: float,
+               kb_h: float = 1.0, kb_v: float = 1.0) -> None:
+    """EntityLivingBase.knockBack(attacker, 0.4, dx, dz), avec multiplicateurs
+    custom (plugins serveur) — kb_h/kb_v = 1.0 reproduit vanilla exactement."""
     f = math.sqrt(ratio_x * ratio_x + ratio_z * ratio_z)
     if f < 1.0e-4:
         return  # vanilla randomise un epsilon ; cas quasi impossible à reach > 0
     target.vx /= 2.0
     target.vz /= 2.0
-    target.vx -= ratio_x / f * C.KNOCKBACK_STRENGTH
-    target.vz -= ratio_z / f * C.KNOCKBACK_STRENGTH
+    target.vx -= ratio_x / f * C.KNOCKBACK_STRENGTH * kb_h
+    target.vz -= ratio_z / f * C.KNOCKBACK_STRENGTH * kb_h
     if target.on_ground:
         target.vy /= 2.0
-        target.vy += C.KNOCKBACK_STRENGTH
-        if target.vy > C.KNOCKBACK_Y_CAP:
-            target.vy = C.KNOCKBACK_Y_CAP
+        target.vy += C.KNOCKBACK_STRENGTH * kb_v
+        if target.vy > C.KNOCKBACK_Y_CAP * kb_v:
+            target.vy = C.KNOCKBACK_Y_CAP * kb_v
 
 
 def apply_entity_collision(a: PlayerState, b: PlayerState) -> None:
@@ -124,8 +126,14 @@ def apply_entity_collision(a: PlayerState, b: PlayerState) -> None:
 
 
 def try_attack(attacker: PlayerState, target: PlayerState,
-               click_cooldown_ticks: int) -> AttackResult:
+               click_cooldown_ticks: int,
+               kb_h: float = 1.0, kb_v: float = 1.0,
+               kb_idle: float = 1.0, target_idle: bool = False) -> AttackResult:
     """Résout un clic d'attaque. Mutile attacker/target comme vanilla.
+
+    kb_h/kb_v : multiplicateurs de knockback custom (1.0 = vanilla).
+    kb_idle   : multiplicateur additionnel si la victime est immobile
+                (aucun input de déplacement) — sémantique des plugins KB.
 
     En boxing les dégâts sont égaux entre hits -> un hit pendant
     hurtResistantTime > 10 est intégralement ignoré (attackEntityFrom
@@ -146,15 +154,18 @@ def try_attack(attacker: PlayerState, target: PlayerState,
     target.hurt_resistant_time = C.MAX_HURT_RESISTANT_TIME
     attacker.hits += 1
 
+    eff_h = kb_h * (kb_idle if target_idle else 1.0)
+    eff_v = kb_v * (kb_idle if target_idle else 1.0)
+
     # Knockback de base : direction attaquant -> cible
-    knock_back(target, attacker.x - target.x, attacker.z - target.z)
+    knock_back(target, attacker.x - target.x, attacker.z - target.z, eff_h, eff_v)
 
     # Bonus sprint (i = 1) + sprint reset de l'attaquant
     if attacker.sprinting:
         yaw_rad = attacker.yaw * C.DEG_TO_RAD
-        target.vx += -math.sin(yaw_rad) * C.SPRINT_KB_H
-        target.vy += C.SPRINT_KB_Y
-        target.vz += math.cos(yaw_rad) * C.SPRINT_KB_H
+        target.vx += -math.sin(yaw_rad) * C.SPRINT_KB_H * eff_h
+        target.vy += C.SPRINT_KB_Y * eff_v
+        target.vz += math.cos(yaw_rad) * C.SPRINT_KB_H * eff_h
         attacker.vx *= C.ATTACKER_SLOWDOWN
         attacker.vz *= C.ATTACKER_SLOWDOWN
         attacker.sprinting = False

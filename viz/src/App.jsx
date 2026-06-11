@@ -11,7 +11,8 @@ export default function App() {
   const [models, setModels] = useState([]);
   const [sel, setSel] = useState({ a: "", b: "" });
   const [params, setParams] = useState({ cps: 12, rot: 40, arena: 18,
-                                         target: 100, sample: true });
+                                         target: 100, sample: true,
+                                         kb_h: 1.0, kb_v: 1.0, kb_idle: 1.0 });
   const [speed, setSpeed] = useState(1);
   const [status, setStatus] = useState(null);
   const [err, setErr] = useState(null);
@@ -58,6 +59,7 @@ export default function App() {
         cps: +params.cps, rot_speed: +params.rot,
         arena_size: +params.arena, target_hits: +params.target,
         sample: params.sample,
+        kb_h: +params.kb_h, kb_v: +params.kb_v, kb_idle: +params.kb_idle,
       });
       setStatus(st);
     } catch (e) { setErr(String(e.message || e)); }
@@ -150,6 +152,12 @@ export default function App() {
                      onChange={(e) => setParams({ ...params, arena: e.target.value })} />
               <Field label="target hits" value={params.target}
                      onChange={(e) => setParams({ ...params, target: e.target.value })} />
+              <Field label="kb horizontal" value={params.kb_h}
+                     onChange={(e) => setParams({ ...params, kb_h: e.target.value })} />
+              <Field label="kb vertical" value={params.kb_v}
+                     onChange={(e) => setParams({ ...params, kb_v: e.target.value })} />
+              <Field label="kb idle" value={params.kb_idle}
+                     onChange={(e) => setParams({ ...params, kb_idle: e.target.value })} />
             </div>
             <hr className="sep" />
             <label className="toggle">
@@ -201,6 +209,8 @@ export default function App() {
             <Kv k="wins A" v={(hud?.wins ?? status?.wins ?? [0, 0])[0]} hl />
             <Kv k="wins B" v={(hud?.wins ?? status?.wins ?? [0, 0])[1]} />
             <Kv k="draws" v={hud?.draws ?? status?.draws ?? 0} />
+            <Kv k="clicks A" v={(hud?.clicks ?? [0, 0])[0]} hl />
+            <Kv k="clicks B" v={(hud?.clicks ?? [0, 0])[1]} />
           </div>
         </aside>
       </div>

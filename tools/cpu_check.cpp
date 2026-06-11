@@ -5,7 +5,7 @@
 //   /tmp/judas_cpu_check <n_envs> <n_ticks> <actions.bin> <out.bin> <params.txt>
 //
 // actions.bin : float32 [n_ticks, n_envs, 2, 7]
-// params.txt  : 18 floats (SimConfig.as_floats), un par ligne
+// params.txt  : 21 floats (SimConfig.as_floats), un par ligne
 // out.bin     : par tick -> obs float32 [n_envs,2,48], reward float32 [n_envs,2],
 //               done uint8 [n_envs], winner int32 [n_envs]
 //               (précédé des obs de reset : float32 [n_envs,2,48])
@@ -27,8 +27,8 @@ int main(int argc, char **argv) {
 
     FILE *pf = fopen(argv[5], "r");
     if (!pf) { fprintf(stderr, "params introuvables\n"); return 2; }
-    double pv[18];
-    for (int i = 0; i < 18; ++i)
+    double pv[21];
+    for (int i = 0; i < 21; ++i)
         if (fscanf(pf, "%lf", &pv[i]) != 1) { fprintf(stderr, "params invalides\n"); return 2; }
     fclose(pf);
     SimParams pr;
@@ -42,6 +42,9 @@ int main(int argc, char **argv) {
     pr.r_win = (float)pv[14]; pr.r_dist = (float)pv[15];
     pr.randomize = (float)pv[16];
     pr.spawn_gap = (float)pv[17];
+    pr.kb_h = (float)pv[18];
+    pr.kb_v = (float)pv[19];
+    pr.kb_idle = (float)pv[20];
 
     // état (mêmes layouts que les tenseurs du wrapper Python)
     std::vector<jreal> pos((size_t)n_envs * 2 * 8, (jreal)0.0);

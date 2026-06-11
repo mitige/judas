@@ -11,6 +11,7 @@ const D = {
   cps_min: 8, cps_max: 16, rot_min: 20, rot_max: 60,
   delay_min: 0, delay_max: 3, spawn_jitter: 2,
   attention: true, d_model: 128, n_layers: 2, n_heads: 4, history: 16,
+  kb_h: 1.0, kb_v: 1.0, kb_idle: 1.0,
   eval_every: 50,
   resume: false, autorestart: true,
 };
@@ -48,6 +49,7 @@ export default function Training({ status }) {
           rot_speed_min: +f.rot_min, rot_speed_max: +f.rot_max,
           delay_min: +f.delay_min, delay_max: +f.delay_max,
           spawn_jitter: +f.spawn_jitter, randomize: true,
+          kb_h_mult: +f.kb_h, kb_v_mult: +f.kb_v, kb_idle_mult: +f.kb_idle,
         },
         ...(f.resume ? { resume: `runs/${f.name}/latest.pt` } : {}),
       });
@@ -113,10 +115,11 @@ export default function Training({ status }) {
         </div>
         <div className="panel">
           <div className="label">rules</div>
-          <div className="grid cols-3">
+          <div className="grid cols-4">
             <Field l="arena" v={f.arena} on={set("arena")} />
             <Field l="target hits" v={f.target_hits} on={set("target_hits")} />
             <Field l="max ticks" v={f.max_ticks} on={set("max_ticks")} />
+            <Field l="spawn jitter" v={f.spawn_jitter} on={set("spawn_jitter")} step="0.5" />
           </div>
         </div>
       </div>
@@ -131,9 +134,11 @@ export default function Training({ status }) {
           </div>
         </div>
         <div className="panel">
-          <div className="label">spawn</div>
+          <div className="label">knockback · 1.0 = vanilla</div>
           <div className="grid cols-3">
-            <Field l="jitter" v={f.spawn_jitter} on={set("spawn_jitter")} step="0.5" />
+            <Field l="horizontal" v={f.kb_h} on={set("kb_h")} step="0.01" />
+            <Field l="vertical" v={f.kb_v} on={set("kb_v")} step="0.01" />
+            <Field l="idle mult" v={f.kb_idle} on={set("kb_idle")} step="0.05" />
           </div>
         </div>
       </div>

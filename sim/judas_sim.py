@@ -66,7 +66,7 @@ class JudasSim:
         dev = self.device
         real_dtype = torch.float64 if self.precision == "double" else torch.float32
         self._pos = torch.zeros((N, 2, 8), dtype=real_dtype, device=dev)
-        self._ints = torch.zeros((N, 2, 8), dtype=torch.int32, device=dev)
+        self._ints = torch.zeros((N, 2, 10), dtype=torch.int32, device=dev)
         self._human = torch.zeros((N, 2, 2), dtype=torch.float32, device=dev)
         self._tick = torch.zeros((N,), dtype=torch.int32, device=dev)
         self._queue = torch.zeros((N, 2, MAX_ACTION_DELAY, ACTION_DIM),

@@ -34,6 +34,9 @@ class SimConfig:
     reward_hurt: float = -1.0
     reward_win: float = 10.0
     reward_dist: float = 0.0            # shaping optionnel : -d * reward_dist
+    reward_combo: float = 0.0           # bonus par maillon de chaîne (0 = off)
+    combo_window: int = 25              # ticks max entre 2 hits d'une chaîne
+    combo_cap: int = 5                  # plafond du multiplicateur de chaîne
 
     # Divers
     randomize: bool = False             # active jitter + randomization humanisation
@@ -52,6 +55,7 @@ class SimConfig:
             1.0 if self.randomize else 0.0,
             self.spawn_gap,
             self.kb_h_mult, self.kb_v_mult, self.kb_idle_mult,
+            self.reward_combo, float(self.combo_window), float(self.combo_cap),
         ]
 
 

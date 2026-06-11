@@ -29,7 +29,7 @@ __global__ void k_tick(StatePtrs S, SimParams pr, const float *actions,
 
 // ------------------------------------------------------------------- bindings
 static SimParams params_from_vec(const std::vector<double> &v) {
-    TORCH_CHECK(v.size() == 21, "SimParams: 21 valeurs attendues");
+    TORCH_CHECK(v.size() == 24, "SimParams: 24 valeurs attendues");
     SimParams p;
     p.arena_x = (float)v[0]; p.arena_z = (float)v[1];
     p.target_hits = (float)v[2]; p.max_ticks = (float)v[3]; p.amp = (float)v[4];
@@ -44,6 +44,9 @@ static SimParams params_from_vec(const std::vector<double> &v) {
     p.kb_h = (float)v[18];
     p.kb_v = (float)v[19];
     p.kb_idle = (float)v[20];
+    p.r_combo = (float)v[21];
+    p.combo_window = (float)v[22];
+    p.combo_cap = (float)v[23];
     return p;
 }
 

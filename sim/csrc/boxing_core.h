@@ -118,6 +118,7 @@ struct SimParams {
     float randomize;
     float spawn_gap;     // demi-distance de spawn (0 = arène/3)
     float kb_h, kb_v, kb_idle;   // knockback custom (1.0 = vanilla)
+    float r_combo, combo_window, combo_cap;   // bonus combo (0 = off)
 };
 
 // État d'un agent en registres
@@ -125,6 +126,7 @@ struct P {
     jreal x, y, z, vx, vy, vz, yaw, pitch;
     int hurt, jt, ccd, hits;
     int og, spr, col;          // on_ground, sprinting, collided_horizontally
+    int combo, last_hit;       // chaîne de hits portés, tick du dernier hit
     float h_cps, h_rot;        // humanisation
     int h_delay;
 };
@@ -383,7 +385,7 @@ JD void write_obs(float *o, const P &own, const P &opp,
 // --------------------------------------------------------------- état mémoire
 struct StatePtrs {
     jreal *pos;         // [N,2,8] x,y,z,vx,vy,vz,yaw,pitch
-    int *ints;          // [N,2,8] hurt, jt, ccd, hits, og, spr, col, h_delay
+    int *ints;          // [N,2,10] hurt, jt, ccd, hits, og, spr, col, h_delay, combo, last_hit
     float *human;       // [N,2,2] h_cps, h_rot
     int *tick;          // [N]
     float *queue;       // [N,2,MAX_DELAY,ACT_DIM]
@@ -396,9 +398,10 @@ JD void load_agent(const StatePtrs &S, int n, int i, P &p) {
     p.x = d[0]; p.y = d[1]; p.z = d[2];
     p.vx = d[3]; p.vy = d[4]; p.vz = d[5];
     p.yaw = d[6]; p.pitch = d[7];
-    const int *q = S.ints + ((long long)n * 2 + i) * 8;
+    const int *q = S.ints + ((long long)n * 2 + i) * 10;
     p.hurt = q[0]; p.jt = q[1]; p.ccd = q[2]; p.hits = q[3];
     p.og = q[4]; p.spr = q[5]; p.col = q[6]; p.h_delay = q[7];
+    p.combo = q[8]; p.last_hit = q[9];
     const float *h = S.human + ((long long)n * 2 + i) * 2;
     p.h_cps = h[0]; p.h_rot = h[1];
 }
@@ -408,9 +411,10 @@ JD void store_agent(const StatePtrs &S, int n, int i, const P &p) {
     d[0] = p.x; d[1] = p.y; d[2] = p.z;
     d[3] = p.vx; d[4] = p.vy; d[5] = p.vz;
     d[6] = p.yaw; d[7] = p.pitch;
-    int *q = S.ints + ((long long)n * 2 + i) * 8;
+    int *q = S.ints + ((long long)n * 2 + i) * 10;
     q[0] = p.hurt; q[1] = p.jt; q[2] = p.ccd; q[3] = p.hits;
     q[4] = p.og; q[5] = p.spr; q[6] = p.col; q[7] = p.h_delay;
+    q[8] = p.combo; q[9] = p.last_hit;
     float *h = S.human + ((long long)n * 2 + i) * 2;
     h[0] = p.h_cps; h[1] = p.h_rot;
 }
@@ -431,6 +435,7 @@ JD void reset_match(const StatePtrs &S, int n, const SimParams &pr, P *agents) {
         p.vx = p.vy = p.vz = R0;
         p.hurt = p.jt = p.ccd = p.hits = 0;
         p.og = 1; p.spr = 0; p.col = 0;
+        p.combo = 0; p.last_hit = 0;
         if (randomize) {
             p.x += (jreal)((rng_next(rs) * 2.0 - 1.0) * (double)pr.jitter);
             p.z += (jreal)((rng_next(rs) * 2.0 - 1.0) * (double)pr.jitter);

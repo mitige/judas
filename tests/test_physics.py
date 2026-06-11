@@ -59,14 +59,18 @@ def test_move_speed_attribute():
 # ------------------------------------------------------------------- saut
 
 def test_jump_peak_height_vanilla():
-    """Hauteur max de saut vanilla : 1.2522 blocs."""
+    """Hauteur max de saut 1.8.9 réelle : 1.2492 blocs.
+
+    Le seuil vanilla |motionY| < 0.005 -> 0 (tête d'onLivingUpdate) annule le
+    dernier micro-pas de 0.0030 à l'apex : la valeur naïve 1.2522 (calculée
+    sans le seuil) n'est jamais atteinte en jeu."""
     p = spawn()
     peak = 0.0
     living_update_movement(p, 0.0, 0.0, True, ARENA, ARENA, -1)
     for _ in range(20):
         living_update_movement(p, 0.0, 0.0, False, ARENA, ARENA, -1)
         peak = max(peak, p.y)
-    assert abs(peak - 1.2522033) < 1e-4
+    assert abs(peak - 1.2491871) < 1e-4
 
 
 def test_jump_airtime_vanilla():

@@ -1,5 +1,6 @@
 """Tests du daemon : protocole, LiveSession, endpoints REST."""
 
+import os
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -7,9 +8,11 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient            # noqa: E402
 
+from serve import daemon                             # noqa: E402
 from serve.daemon import app, live                   # noqa: E402
 from serve.live import LiveSession                   # noqa: E402
 from serve.protocol import ArenaCalib, action_to_msg, player_from_msg  # noqa: E402
+from serve.training_manager import TrainingManager   # noqa: E402
 
 
 def state_msg(z_self=3.0, z_target=5.5):
@@ -109,3 +112,48 @@ def test_rest_models_empty():
     r = client.get("/models")
     assert r.status_code == 200
     assert "runs" in r.json()
+
+
+def test_rest_payloads_replace_non_finite_numbers(monkeypatch):
+    monkeypatch.setattr(daemon, "_gpu_status",
+                        lambda: {"available": True, "mem_used_gb": float("nan")})
+    monkeypatch.setattr(daemon.training, "metrics",
+                        lambda *args, **kwargs: [{"reward_mean": float("inf")}])
+
+    client = TestClient(app, raise_server_exceptions=False)
+
+    r = client.get("/status")
+    assert r.status_code == 200
+    assert r.json()["gpu"]["mem_used_gb"] is None
+
+    r = client.get("/training/metrics")
+    assert r.status_code == 200
+    assert r.json()[0]["reward_mean"] is None
+
+
+def test_training_manager_prefers_repo_venv_python(tmp_path):
+    venv_python = tmp_path / ".venv" / "Scripts" / "python.exe"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("")
+
+    mgr = TrainingManager(repo_root=tmp_path)
+
+    assert mgr.python == venv_python
+    assert mgr.status()["python"] == str(venv_python)
+    assert str(venv_python.parent) in mgr._training_env()["PATH"].split(os.pathsep)
+
+
+def test_training_manager_preserves_windows_path_key(tmp_path, monkeypatch):
+    venv_python = tmp_path / ".venv" / "Scripts" / "python.exe"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("")
+    msvc_path = str(tmp_path / "BuildTools" / "VC" / "bin")
+
+    mgr = TrainingManager(repo_root=tmp_path)
+    monkeypatch.setattr(mgr, "_env_from_script",
+                        lambda: {"Path": msvc_path, "TORCH_CUDA_ARCH_LIST": "8.6"})
+
+    env = mgr._training_env()
+
+    assert "Path" not in env
+    assert env["PATH"].split(os.pathsep)[:2] == [str(venv_python.parent), msvc_path]

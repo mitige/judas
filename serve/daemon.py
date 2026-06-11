@@ -20,9 +20,13 @@ WebSocket :
 import argparse
 import asyncio
 import json
+import logging
+import math
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
+logger = logging.getLogger("judas.daemon")
 
 from .arena import ArenaSession
 from .live import LiveSession
@@ -39,6 +43,22 @@ arena = ArenaSession()
 _event_clients: set = set()
 _arena_clients: set = set()
 _arena_task = None
+
+
+def _json_safe(value):
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+def _json_text(value) -> str:
+    return json.dumps(_json_safe(value), allow_nan=False)
 
 
 def _gpu_status() -> dict:
@@ -60,42 +80,57 @@ def _gpu_status() -> dict:
 # ----------------------------------------------------------------------- REST
 @app.get("/status")
 def status():
-    return {"training": training.status(), "live": live.status(),
-            "gpu": _gpu_status()}
+    return _json_safe({"training": training.status(), "live": live.status(),
+                       "gpu": _gpu_status()})
 
 
 @app.post("/training/start")
 def training_start(cfg: dict):
     resume = cfg.pop("resume", None)
     autorestart = bool(cfg.pop("autorestart", True))
-    return training.start(cfg, resume=resume, autorestart=autorestart)
+    try:
+        return _json_safe(training.start(cfg, resume=resume,
+                                         autorestart=autorestart))
+    except RuntimeError as exc:        # déjà en cours -> conflit, pas un 500
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @app.post("/training/stop")
 def training_stop():
-    return training.stop()
+    return _json_safe(training.stop())
 
 
 @app.get("/training/metrics")
 def training_metrics(run: str | None = None, tail: int = 200):
-    return training.metrics(run, tail)
+    return _json_safe(training.metrics(run, tail))
 
 
 @app.get("/models")
 def models():
-    return {"runs": training.list_runs(), "exported": training.list_exported()}
+    return _json_safe({"runs": training.list_runs(),
+                       "exported": training.list_exported()})
 
 
 @app.post("/models/export")
 def models_export(body: dict):
     from train.export import export
-    out = export(body["ckpt"], body.get("out", "models/judas.pts"))
+    if "ckpt" not in body:
+        raise HTTPException(status_code=400, detail="champ 'ckpt' manquant")
+    try:
+        out = export(body["ckpt"], body.get("out", "models/judas.pts"))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     return {"exported": str(out)}
 
 
 @app.post("/live/load")
 def live_load(body: dict):
-    return live.load(body["model"])
+    if "model" not in body:
+        raise HTTPException(status_code=400, detail="champ 'model' manquant")
+    try:
+        return _json_safe(live.load(body["model"]))
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @app.post("/live/params")
@@ -109,26 +144,29 @@ def live_params(body: dict):
         p.enabled = bool(body["enabled"])
     if "arena" in body:
         p.arena = ArenaCalib(**body["arena"])
-    return live.status()
+    return _json_safe(live.status())
 
 
 @app.post("/live/kill")
 def live_kill():
     live.params.enabled = False
     live.reset()
-    return live.status()
+    return _json_safe(live.status())
 
 
 # ------------------------------------------------------------------ arène viz
 @app.get("/arena/status")
 def arena_status():
-    return arena.status()
+    return _json_safe(arena.status())
 
 
 @app.post("/arena/load")
 async def arena_load(body: dict):
+    if "model_a" not in body or "model_b" not in body:
+        raise HTTPException(status_code=400,
+                            detail="champs 'model_a'/'model_b' manquants")
     arena.running = False
-    return arena.load(
+    return _json_safe(arena.load(
         body["model_a"], body["model_b"],
         cps=float(body.get("cps", 12.0)),
         rot_speed=float(body.get("rot_speed", 40.0)),
@@ -138,7 +176,7 @@ async def arena_load(body: dict):
         kb_h=float(body.get("kb_h", 1.0)),
         kb_v=float(body.get("kb_v", 1.0)),
         kb_idle=float(body.get("kb_idle", 1.0)),
-    )
+    ))
 
 
 @app.post("/arena/control")
@@ -154,20 +192,31 @@ async def arena_control(body: dict):
         arena.running = bool(body["running"]) and arena.ready
         if arena.running and (_arena_task is None or _arena_task.done()):
             _arena_task = asyncio.create_task(_arena_loop())
-    return arena.status()
+    return _json_safe(arena.status())
 
 
 async def _arena_loop():
     """Boucle de match : step à 20 TPS x vitesse, broadcast aux clients viz."""
-    while arena.running and arena.ready:
-        state = arena.step()
-        msg = json.dumps(state)
+    try:
+        while arena.running and arena.ready:
+            state = arena.step()
+            msg = _json_text(state)
+            for ws in list(_arena_clients):
+                try:
+                    await ws.send_text(msg)
+                except Exception:
+                    _arena_clients.discard(ws)
+            await asyncio.sleep(1.0 / (20.0 * arena.speed))
+    except Exception:
+        # sans ce filet, la tâche meurt en silence et status reste running=True
+        logger.exception("arena loop crashed")
+        arena.running = False
+        status_msg = _json_text({"t": "status", **arena.status()})
         for ws in list(_arena_clients):
             try:
-                await ws.send_text(msg)
+                await ws.send_text(status_msg)
             except Exception:
                 _arena_clients.discard(ws)
-        await asyncio.sleep(1.0 / (20.0 * arena.speed))
 
 
 @app.websocket("/arena")
@@ -176,7 +225,7 @@ async def ws_arena(ws: WebSocket):
     await ws.accept()
     _arena_clients.add(ws)
     try:
-        await ws.send_text(json.dumps({"t": "status", **arena.status()}))
+        await ws.send_text(_json_text({"t": "status", **arena.status()}))
         while True:
             await ws.receive_text()        # détecte la déconnexion
     except WebSocketDisconnect:
@@ -186,10 +235,20 @@ async def ws_arena(ws: WebSocket):
 
 
 # ----------------------------------------------------------------- WebSockets
+_live_ws: WebSocket | None = None
+
+
 @app.websocket("/live")
 async def ws_live(ws: WebSocket):
     """Connexion du mod Forge : état -> action à chaque tick."""
+    global _live_ws
+    # session unique : une 2e connexion détruirait l'état (historique, tick)
+    # de la session active du mod
+    if _live_ws is not None:
+        await ws.close(code=1008, reason="session live déjà connectée")
+        return
     await ws.accept()
+    _live_ws = ws
     live.reset()
     try:
         while True:
@@ -200,11 +259,18 @@ async def ws_live(ws: WebSocket):
                 continue
             if msg.get("t") != "state":
                 continue
-            action = live.on_state(msg)
+            try:
+                action = live.on_state(msg)
+            except (KeyError, TypeError, ValueError):
+                # message 'state' malformé : ignorer plutôt que tuer le lien
+                logger.warning("message state malformé ignoré", exc_info=True)
+                continue
             if action is not None:
-                await ws.send_text(json.dumps(action))
+                await ws.send_text(_json_text(action))
     except WebSocketDisconnect:
         pass
+    finally:
+        _live_ws = None
 
 
 @app.websocket("/events")
@@ -221,7 +287,7 @@ async def ws_events(ws: WebSocket):
                 "gpu": _gpu_status(),
                 "metrics_tail": training.metrics(tail=1),
             }
-            await ws.send_text(json.dumps(payload))
+            await ws.send_text(_json_text(payload))
             await asyncio.sleep(1.0)
     except WebSocketDisconnect:
         pass

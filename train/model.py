@@ -26,11 +26,21 @@ LOG_STD_MIN, LOG_STD_MAX = -4.0, 1.0
 TANH_EPS = 1e-6
 
 
+def _categorical_entropy_from_logits(logits: torch.Tensor) -> torch.Tensor:
+    logp = F.log_softmax(logits.float(), dim=-1)
+    return -(logp.exp() * logp).sum(-1)
+
+
+def _bernoulli_entropy_from_logits(logits: torch.Tensor) -> torch.Tensor:
+    logits = logits.float()
+    return (F.softplus(logits) - logits * torch.sigmoid(logits)).sum(-1)
+
+
 @dataclass
 class PolicyConfig:
     obs_dim: int = OBS_DIM
-    history: int = 16
-    d_model: int = 128          # taille du cerveau
+    history: int = 8
+    d_model: int = 96           # taille du cerveau
     n_heads: int = 4
     n_layers: int = 2
     ff_mult: int = 4
@@ -141,11 +151,10 @@ class JudasPolicy(nn.Module):
         z = self.trunk(hist)
         mean, log_std, fwd_l, str_l, bin_l, value = self.heads(z)
         logp = self.log_prob(mean, log_std, fwd_l, str_l, bin_l, raw)
-        ent_cont = (0.5 * (1.0 + math.log(2 * math.pi)) + log_std).sum(-1)
-        ent_fwd = torch.distributions.Categorical(logits=fwd_l).entropy()
-        ent_str = torch.distributions.Categorical(logits=str_l).entropy()
-        p = torch.sigmoid(bin_l)
-        ent_bin = (-(p * (p + 1e-8).log() + (1 - p) * (1 - p + 1e-8).log())).sum(-1)
+        ent_cont = (0.5 * (1.0 + math.log(2 * math.pi)) + log_std.float()).sum(-1)
+        ent_fwd = _categorical_entropy_from_logits(fwd_l)
+        ent_str = _categorical_entropy_from_logits(str_l)
+        ent_bin = _bernoulli_entropy_from_logits(bin_l)
         entropy = ent_cont + ent_fwd + ent_str + ent_bin
         return logp, entropy, value, self.aux_head(z)
 

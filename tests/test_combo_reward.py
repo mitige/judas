@@ -3,13 +3,13 @@
 Spec : docs/specs/2026-06-11-combo-reward-design.md
 """
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from helpers import HAS_CPU_CHECK_COMPILER, build_cpu_check
 from sim import SimConfig
 from sim.ref_backend import JudasSimRef, combo_step
 
@@ -139,12 +139,7 @@ def test_ref_backend_combo_off_par_defaut():
 # ----------------------------------- équivalence kernel (CPU, double) <-> ref
 def _build_cpu_check(tmp_path):
     """Compile le harnais CPU (boxing_core.h en double) -> chemin du binaire."""
-    binary = tmp_path / "judas_cpu_check_combo"
-    subprocess.run(
-        ["g++", "-O2", "-I", str(ROOT / "sim" / "csrc"), "-DJUDAS_DOUBLE",
-         "-o", str(binary), str(ROOT / "tools" / "cpu_check.cpp")],
-        check=True, capture_output=True)
-    return binary
+    return build_cpu_check(tmp_path, "JUDAS_DOUBLE")
 
 
 def _run_cpu_check(binary, tmp_path, cfg, acts):
@@ -160,7 +155,7 @@ def _run_cpu_check(binary, tmp_path, cfg, acts):
     return np.fromfile(out_f, dtype=np.uint8)
 
 
-@pytest.mark.skipif(shutil.which("g++") is None, reason="g++ requis")
+@pytest.mark.skipif(not HAS_CPU_CHECK_COMPILER, reason="g++ ou cl (MSVC) requis")
 def test_kernel_combo_matches_ref(tmp_path):
     """Le bloc combo du kernel (boxing_core.h) reproduit exactement le
     backend de référence avec reward_combo actif, sur actions aléatoires."""
@@ -211,7 +206,7 @@ def test_kernel_combo_matches_ref(tmp_path):
     assert combo_ticks > 0, "aucun hit en chaîne — test inopérant"
 
 
-@pytest.mark.skipif(shutil.which("g++") is None, reason="g++ requis")
+@pytest.mark.skipif(not HAS_CPU_CHECK_COMPILER, reason="g++ ou cl (MSVC) requis")
 def test_kernel_combo_cap_matches_ref(tmp_path):
     """Poursuite scriptée (agent 0 avance+attaque, agent 1 passif) à travers
     le harnais CPU : la chaîne dépasse combo_cap -> la branche de clamp du

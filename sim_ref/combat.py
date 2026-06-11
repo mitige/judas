@@ -5,7 +5,8 @@ Chaîne vanilla d'un hit :
             contre l'AABB de la cible étendue de getCollisionBorderSize() (0.1)
   serveur : EntityPlayer.attackTargetEntityWithCurrentItem
             -> EntityLivingBase.attackEntityFrom (hurtResistantTime)
-            -> EntityLivingBase.knockBack (0.4 horizontal, +0.4 vertical si au sol)
+            -> EntityLivingBase.knockBack (0.4 horizontal, +0.4 vertical
+               inconditionnel en 1.8.9 — la garde onGround est 1.9+)
             -> bonus sprint : addVelocity(-sin(yaw)*0.5, 0.1, cos(yaw)*0.5),
                attaquant ralenti x0.6 et sprint coupé (sprint reset)
 """
@@ -82,19 +83,22 @@ class AttackResult:
 def knock_back(target: PlayerState, ratio_x: float, ratio_z: float,
                kb_h: float = 1.0, kb_v: float = 1.0) -> None:
     """EntityLivingBase.knockBack(attacker, 0.4, dx, dz), avec multiplicateurs
-    custom (plugins serveur) — kb_h/kb_v = 1.0 reproduit vanilla exactement."""
+    custom (plugins serveur). kb_h/kb_v = 1.0 reproduit vanilla exactement.
+
+    1.8.9 : motionX/Y/Z /= 2 puis le boost (+0.4 vertical, cap 0.4) sont
+    INCONDITIONNELS — la garde onGround n'apparaît qu'en 1.9. C'est ce qui
+    permet le juggle aérien des combos."""
     f = math.sqrt(ratio_x * ratio_x + ratio_z * ratio_z)
     if f < 1.0e-4:
         return  # vanilla randomise un epsilon ; cas quasi impossible à reach > 0
     target.vx /= 2.0
+    target.vy /= 2.0
     target.vz /= 2.0
     target.vx -= ratio_x / f * C.KNOCKBACK_STRENGTH * kb_h
+    target.vy += C.KNOCKBACK_STRENGTH * kb_v
     target.vz -= ratio_z / f * C.KNOCKBACK_STRENGTH * kb_h
-    if target.on_ground:
-        target.vy /= 2.0
-        target.vy += C.KNOCKBACK_STRENGTH * kb_v
-        if target.vy > C.KNOCKBACK_Y_CAP * kb_v:
-            target.vy = C.KNOCKBACK_Y_CAP * kb_v
+    if target.vy > C.KNOCKBACK_Y_CAP * kb_v:
+        target.vy = C.KNOCKBACK_Y_CAP * kb_v
 
 
 def apply_entity_collision(a: PlayerState, b: PlayerState) -> None:
@@ -133,7 +137,7 @@ def try_attack(attacker: PlayerState, target: PlayerState,
 
     kb_h/kb_v : multiplicateurs de knockback custom (1.0 = vanilla).
     kb_idle   : multiplicateur additionnel si la victime est immobile
-                (aucun input de déplacement) — sémantique des plugins KB.
+                (aucun input de déplacement).
 
     En boxing les dégâts sont égaux entre hits -> un hit pendant
     hurtResistantTime > 10 est intégralement ignoré (attackEntityFrom

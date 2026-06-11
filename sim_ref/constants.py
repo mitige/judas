@@ -27,6 +27,7 @@ SPRINT_JUMP_BOOST = 0.2       # boost directionnel au sprint-jump
 JUMP_COOLDOWN_TICKS = 10      # jumpTicks (saut maintenu)
 AIR_MOVE_FACTOR = 0.02        # jumpMovementFactor
 SPRINT_AIR_BONUS = 0.3        # jumpMovementFactor *= 1.3 si sprint (0.02 -> 0.026)
+MOTION_ZERO_THRESHOLD = 0.005  # onLivingUpdate : |motion| < 0.005 -> 0
 
 # --- Vitesse (attribut movementSpeed, opérations multiplicatives) -----------
 BASE_MOVE_SPEED = 0.10000000149011612   # SharedMonsterAttributes.movementSpeed (joueur)

@@ -11,6 +11,8 @@ Sorties dans runs/<name>/ :
 
 import argparse
 import json
+import random
+import shutil
 import time
 from pathlib import Path
 
@@ -26,14 +28,14 @@ from .ppo import PPO, PPOConfig
 
 DEFAULT_CFG = {
     "name": "boxing",
-    "total_iters": 10000,
+    "total_iters": 300,
     "n_envs": 4096,
     "rollout_ticks": 128,
     "league_frac": 0.3,
-    "pool_every": 50,
+    "pool_every": 25,
     "save_every": 25,
     "keep_ckpts": 10,            # rétention : derniers N + 1 sur 500
-    "eval_every": 50,            # matchs d'éval auto vs anciens snapshots
+    "eval_every": 25,            # matchs d'éval auto vs anciens snapshots
     "eval_envs": 128,
     "eval_target_hits": 20,
     "eval_max_ticks": 1500,
@@ -41,10 +43,10 @@ DEFAULT_CFG = {
     "shaping_decay_iters": 100,
     "curriculum_gap": 2.0,       # spawn proche au début (0 = désactivé)
     "snapshot_gate": True,       # snapshot league seulement s'il bat le précédent
-    "league_bot_frac": 0.2,      # part d'envs vs chase-bot (annealée -> 0.05)
+    "league_bot_frac": 0.25,     # part d'envs vs chase-bot (annealée -> 0.05)
     "seed": 0,
-    "sim": {},
-    "policy": {},
+    "sim": {"target_hits": 50},
+    "policy": {"history": 8, "d_model": 96, "n_heads": 4, "n_layers": 2},
     "ppo": {},
 }
 
@@ -55,6 +57,7 @@ class Trainer:
         self.cfg["sim"] = {**DEFAULT_CFG["sim"], **cfg.get("sim", {})}
         torch.manual_seed(self.cfg["seed"])
         np.random.seed(self.cfg["seed"])
+        random.seed(self.cfg["seed"])          # league.sample (random.choices)
 
         # Ampere+ : TF32 pour les matmuls (gros gain, précision suffisante en RL)
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -117,6 +120,7 @@ class Trainer:
         self._opp_pool_idx: list[int] = []
         self._env_opp: torch.Tensor = torch.full((self.N,), -1, dtype=torch.long,
                                                  device=self.device)
+        self._learner_mask: torch.Tensor | None = None
 
     # ------------------------------------------------------------------ utils
     def _to_torch(self, x):
@@ -262,7 +266,13 @@ class Trainer:
     # ------------------------------------------------------------------- main
     def train_iter(self) -> dict:
         t0 = time.perf_counter()
-        learner_mask = self._assign_opponents()
+        # Adversaires COLLANTS : réassignés seulement toutes les pool_every
+        # itérations. Les épisodes (>1000 ticks) s'étalent sur ~10-30 rollouts
+        # de 128 ticks : réassigner à chaque itération attribuait à l'ELO d'un
+        # snapshot des matchs majoritairement joués contre d'autres contrôleurs.
+        if self._learner_mask is None or self.iter % self.cfg["pool_every"] == 0:
+            self._learner_mask = self._assign_opponents()
+        learner_mask = self._learner_mask
         buf = self._buf
         buf.reset()
         ep = self._collect(buf, learner_mask)
@@ -286,22 +296,31 @@ class Trainer:
             self.save()
 
         lm = learner_mask
-        # hits/minute par agent learner (proxy : reward d'un hit ~ +1)
-        hits_mask = buf.reward[:, lm] > 0.9
+        # Hits EXACTS depuis l'obs (o[31] = hits/100) plutôt que par seuil sur
+        # le reward : les trades (hit + hurt le même tick, reward ~ 0) sont
+        # comptés correctement. Le tick de done est exclu (obs = nouveau match).
+        hits_obs = (buf.obs[:, :, 31] * 100.0).round()                 # [T, B]
+        final_hits = (self.hist[:, -1, 31] * 100.0).round().unsqueeze(0)
+        next_hits = torch.cat([hits_obs[1:], final_hits], dim=0)
+        dealt = ((next_hits - hits_obs).clamp(min=0.0)
+                 * (1.0 - buf.done)) > 0.5                             # [T, B]
+        taken = dealt.view(self.T, self.N, 2).flip(-1).reshape(self.T, self.B)
+        hits_mask = dealt[:, lm]
         hit_rate = float(hits_mask.float().mean()) * 1200.0
         # % de hits portés en sprint+forward (le "Z-tap" mesurable : un bon
         # joueur converge vers ~1.0 — chaque hit profite du KB bonus sprint)
         sprint_act = (buf.bins[:, lm, 1] > 0.5) & (buf.fwd[:, lm] == 2)
         sprint_hit = float((hits_mask & sprint_act).float().sum()
                            / hits_mask.float().sum().clamp(min=1.0))
-        # % de hits portés en chaîne (bonus combo > 0) — thermomètre du
-        # style combo ; 0 si le shaping est désactivé
+        # % de hits portés en chaîne (bonus combo > 0) — thermomètre du style
+        # combo ; 0 si le shaping est désactivé. Mesuré sur les hits HORS
+        # trade : sur un trade le reward (hit + hurt ± combo) est inclassable.
         rc = float(self.sim_cfg.reward_combo)
         if rc > 0.0:
-            hits_bounded = hits_mask & (buf.reward[:, lm] < 5.0)  # exclut le win
+            clean_hits = hits_mask & ~taken[:, lm]
             combo_mask = buf.reward[:, lm] > self.sim_cfg.reward_hit + 0.5 * rc
-            combo_hit = float((hits_bounded & combo_mask).float().sum()
-                              / hits_bounded.float().sum().clamp(min=1.0))
+            combo_hit = float((clean_hits & combo_mask).float().sum()
+                              / clean_hits.float().sum().clamp(min=1.0))
         else:
             combo_hit = 0.0
         self._update_ramp(hit_rate)
@@ -465,7 +484,10 @@ class Trainer:
         obs = self._to_torch(self._eval_sim.reset()).float()    # [n, 2, D]
         hist = torch.zeros(n, 2, self.H, OBS_DIM, device=self.device)
         hist[:, :, -1] = obs
-        score, finished = 0.0, 0
+        score = 0.0
+        # un seul match compté par env : les envs auto-reset continuent de
+        # tourner mais leurs matchs suivants (les plus courts) sont ignorés
+        counted = torch.zeros(n, dtype=torch.bool, device=self.device)
         for _ in range(self.cfg["eval_max_ticks"]):
             with torch.autocast("cuda", dtype=torch.float16, enabled=self._use_amp):
                 a0 = self.policy.act(hist[:, 0])
@@ -482,11 +504,13 @@ class Trainer:
             hist = torch.roll(hist, shifts=-1, dims=2)
             hist[done.bool()] = 0.0
             hist[:, :, -1] = obs.float()
-            for w in winner[done.bool()].tolist():
-                finished += 1
+            fresh = done.bool() & ~counted
+            for w in winner[fresh].tolist():
                 score += 1.0 if w == 0 else (0.5 if w == -1 else 0.0)
-            if finished >= n:
+            counted |= done.bool()
+            if bool(counted.all()):
                 break
+        finished = int(counted.sum())
         return score / finished if finished else 0.5
 
     def train(self, iters: int | None = None) -> None:
@@ -500,19 +524,33 @@ class Trainer:
     # ------------------------------------------------------------ persistence
     def save(self) -> Path:
         path = self.run_dir / f"ckpt_{self.iter:06d}.pt"
-        torch.save({
+        payload = {
             "iter": self.iter,
             "total_steps": self.total_steps,
             "ramp_on": self._ramp_on,
             "ramp_pos": self._ramp_pos,
+            "best_bot": self._best_bot,
             "policy": self.policy.state_dict(),
             "optimizer": self.ppo.opt.state_dict(),
+            "scaler": self.ppo.scaler.state_dict(),
             "league": self.league.state_dict(),
             "cfg": self.cfg,
             "policy_cfg": self.pol_cfg.__dict__,
-        }, path)
-        torch.save(torch.load(path, map_location="cpu", weights_only=False),
-                   self.run_dir / "latest.pt")
+            "torch_rng": torch.get_rng_state(),
+            "cuda_rng": (torch.cuda.get_rng_state_all()
+                         if torch.cuda.is_available() else None),
+            "numpy_rng": np.random.get_state(),
+            "python_rng": random.getstate(),
+        }
+        # écriture atomique : un kill pendant le save (stop de l'app,
+        # autorestart) ne peut pas laisser un ckpt/latest.pt tronqué
+        tmp = path.with_suffix(".tmp")
+        torch.save(payload, tmp)
+        tmp.replace(path)
+        latest = self.run_dir / "latest.pt"
+        tmp_latest = latest.with_suffix(".tmp")
+        shutil.copyfile(path, tmp_latest)
+        tmp_latest.replace(latest)
         self._prune_checkpoints()
         return path
 
@@ -538,9 +576,12 @@ class Trainer:
             self.ppo.opt.load_state_dict(ckpt["optimizer"])
         except (ValueError, KeyError):
             pass    # architecture modifiée -> optimizer frais
+        if "scaler" in ckpt:
+            self.ppo.scaler.load_state_dict(ckpt["scaler"])
         self.league.load_state_dict(ckpt["league"])
         self.iter = ckpt["iter"]
         self.total_steps = ckpt.get("total_steps", 0)
+        self._best_bot = ckpt.get("best_bot", -1.0)
         if "ramp_pos" in ckpt:
             self._ramp_on = ckpt["ramp_on"]
             self._ramp_pos = ckpt["ramp_pos"]
@@ -549,6 +590,22 @@ class Trainer:
             self._ramp_on = True
             self._ramp_pos = min((self.iter - ckpt["ramp_start"])
                                  / max(self.cfg["shaping_decay_iters"], 1), 1.0)
+        # ré-applique immédiatement le curriculum (sinon la 1re itération
+        # post-resume collecte avec le spawn_gap/shaping initiaux périmés)
+        self._auto_shaping()
+        self._auto_curriculum()
+        # reprise reproductible : restaure tous les états RNG si présents
+        if ckpt.get("torch_rng") is not None:
+            torch.set_rng_state(ckpt["torch_rng"].cpu())
+        if ckpt.get("cuda_rng") is not None and torch.cuda.is_available():
+            try:
+                torch.cuda.set_rng_state_all([s.cpu() for s in ckpt["cuda_rng"]])
+            except (RuntimeError, IndexError):
+                pass    # nombre de GPU différent -> RNG frais
+        if ckpt.get("numpy_rng") is not None:
+            np.random.set_state(ckpt["numpy_rng"])
+        if ckpt.get("python_rng") is not None:
+            random.setstate(ckpt["python_rng"])
 
     def _log(self, metrics: dict) -> None:
         with open(self.run_dir / "metrics.jsonl", "a") as f:
@@ -574,7 +631,8 @@ def main():
 
     cfg = {}
     if args.config:
-        cfg = json.loads(Path(args.config).read_text())
+        # utf-8-sig : tolère le BOM des éditeurs/outils Windows
+        cfg = json.loads(Path(args.config).read_text(encoding="utf-8-sig"))
     trainer = Trainer(cfg)
     if args.resume:
         trainer.load(args.resume)

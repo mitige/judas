@@ -61,7 +61,8 @@ class JudasSimRef:
         self._h = HumanizationConfig(
             max_cps=_mid(self.cfg.cps_min, self.cfg.cps_max),
             max_rot_speed=_mid(self.cfg.rot_speed_min, self.cfg.rot_speed_max),
-            action_delay=round(_mid(self.cfg.delay_min, self.cfg.delay_max)),
+            # int(x + 0.5) et non round() : même arrondi que le kernel
+            action_delay=int(_mid(self.cfg.delay_min, self.cfg.delay_max) + 0.5),
         )
         self._matches: list[BoxingMatch] = []
         self._last_actions = np.zeros((n_envs, 2, ACTION_DIM), dtype=np.float32)

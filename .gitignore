@@ -8,6 +8,7 @@ dist/
 
 # Torch / training
 runs/
+models/
 checkpoints/
 *.pt
 *.pts
@@ -33,3 +34,7 @@ sim/.torch_ext_cache/
 .idea/
 .vscode/
 *.log
+output/
+
+# Archives de sauvegarde manuelles à la racine
+/*.zip

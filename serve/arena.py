@@ -30,8 +30,10 @@ class _Agent:
             self.kind = "script"
             self.model = torch.jit.load(self.path, map_location=device).eval()
             meta = Path(self.path).with_suffix(".json")
+            # 8 = PolicyConfig.history par défaut (un fallback plus grand
+            # ferait crasher la trace si le .json d'export manque)
             self.history = int(json.loads(meta.read_text())["history"]) \
-                if meta.exists() else 16
+                if meta.exists() else 8
         else:
             from train.model import JudasPolicy, PolicyConfig
             self.kind = "policy"
@@ -65,7 +67,7 @@ class ArenaSession:
         self.wins = [0, 0]
         self.draws = 0
         self.matches = 0
-        self.clicks = [0, 0]      # clics décidés (diagnostic "l'IA attaque-t-elle ?")
+        self.clicks = [0, 0]      # clics décidés (diagnostic attaque)
         self.cfg = SimConfig(randomize=False)
         self._hist = None
         self._last_obs = None
@@ -96,6 +98,7 @@ class ArenaSession:
         self.wins = [0, 0]
         self.draws = 0
         self.matches = 0
+        self.clicks = [0, 0]
         self.reset()
         return self.status()
 
@@ -103,7 +106,7 @@ class ArenaSession:
         if self.sim is None:
             return
         obs = self.sim.reset()                       # [1, 2, OBS_DIM]
-        h_max = max(a.history for a in self.agents if a) if any(self.agents) else 16
+        h_max = max(a.history for a in self.agents if a) if any(self.agents) else 8
         self._hist = np.zeros((2, h_max, OBS_DIM), dtype=np.float32)
         self._hist[:, -1] = obs[0]
         self.tick = 0
@@ -190,6 +193,7 @@ class ArenaSession:
             "wins": self.wins,
             "draws": self.draws,
             "matches": self.matches,
+            "clicks": self.clicks,
             "tick": self.tick,
             "arena": {"sx": self.cfg.arena_size_x, "sz": self.cfg.arena_size_z},
             "target_hits": self.cfg.target_hits,

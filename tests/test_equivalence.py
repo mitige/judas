@@ -20,18 +20,19 @@ N_ENVS = 16
 N_TICKS = 400
 
 
-def test_cuda_matches_reference():
+def _run_equivalence(cfg, n_ticks=N_TICKS, force_attack=False, seed=7):
     from sim.judas_sim import JudasSim
 
-    cfg = SimConfig(randomize=False, target_hits=15, max_ticks=300)
     gpu = JudasSim(N_ENVS, cfg, seed=0, precision="double")
     cpu = JudasSimRef(N_ENVS, cfg, seed=0)
 
     np.testing.assert_allclose(gpu.reset().cpu().numpy(), cpu.reset(), atol=ATOL)
 
-    rng = np.random.default_rng(7)
-    for t in range(N_TICKS):
+    rng = np.random.default_rng(seed)
+    for t in range(n_ticks):
         a = random_actions(rng, N_ENVS)
+        if force_attack:
+            a[..., 6] = 1.0
         og, rg, dg, _ = gpu.step(torch.from_numpy(a))
         oc, rc, dc, _ = cpu.step(a)
         np.testing.assert_allclose(og.cpu().numpy(), oc, atol=ATOL,
@@ -40,3 +41,45 @@ def test_cuda_matches_reference():
                                    err_msg=f"reward divergent au tick {t}")
         assert np.array_equal(dg.cpu().numpy().astype(bool), dc), \
             f"done divergent au tick {t}"
+
+
+def test_cuda_matches_reference():
+    _run_equivalence(SimConfig(randomize=False, target_hits=15, max_ticks=300))
+
+
+def test_cuda_matches_reference_full_options():
+    """Équivalence GPU avec TOUTES les options actives : reward_combo (exigé
+    par la spec combo), kb custom, shaping distance et latence d'action."""
+    cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=15,
+                    max_ticks=300, reward_combo=0.25, combo_window=60,
+                    combo_cap=5, reward_dist=0.002,
+                    kb_h_mult=0.9055, kb_v_mult=0.8835, kb_idle_mult=0.6,
+                    delay_min=2, delay_max=2)
+    _run_equivalence(cfg, force_attack=True)
+
+
+def test_cuda_determinism_and_seed_sensitivity():
+    """Même seed -> trajectoires bit-identiques (randomize=True inclus) ;
+    seed différent -> trajectoires différentes."""
+    from sim.judas_sim import JudasSim
+
+    cfg = SimConfig(randomize=True, spawn_jitter=2.0, target_hits=10,
+                    max_ticks=200, cps_min=8.0, cps_max=16.0,
+                    rot_speed_min=20.0, rot_speed_max=60.0,
+                    delay_min=0, delay_max=3)
+    rng = np.random.default_rng(3)
+    acts = [random_actions(rng, 8) for _ in range(150)]
+
+    def run(seed):
+        sim = JudasSim(8, cfg, seed=seed)          # build float32 (entraînement)
+        frames = [sim.reset().cpu().numpy().copy()]
+        for a in acts:
+            o, r, _, _ = sim.step(torch.from_numpy(a))
+            frames.append(np.concatenate(
+                [o.cpu().numpy().reshape(8, -1),
+                 r.cpu().numpy().reshape(8, -1)], axis=1))
+        return np.concatenate([f.reshape(8, -1) for f in frames], axis=1)
+
+    run_a, run_b, run_c = run(0), run(0), run(1)
+    assert np.array_equal(run_a, run_b), "même seed -> doit être bit-identique"
+    assert not np.array_equal(run_a, run_c), "seeds différents -> doit différer"

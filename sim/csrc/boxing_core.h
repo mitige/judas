@@ -101,6 +101,7 @@ JD jreal jatan2(jreal y, jreal x) {
 #define ATTACKER_SLOWDOWN ((jreal)0.6)
 #define MAX_HURT 20
 #define HURT_REHIT 10
+#define MOTION_ZERO ((jreal)0.005)
 #define DEG2RAD ((jreal)0.017453292519943295)
 #define RAD2DEG ((jreal)57.29577951308232)
 
@@ -206,6 +207,10 @@ JD void living_update_movement(P &p, jreal strafe_in, jreal forward_in,
     jreal strafe = strafe_in * INPUT_FACTOR;
     jreal forward = forward_in * INPUT_FACTOR;
     if (p.jt > 0) p.jt -= 1;
+    // vanilla : micro-vitesses annulées en tête d'onLivingUpdate
+    if (jabs(p.vx) < MOTION_ZERO) p.vx = R0;
+    if (jabs(p.vy) < MOTION_ZERO) p.vy = R0;
+    if (jabs(p.vz) < MOTION_ZERO) p.vz = R0;
     if (jumping) {
         if (p.og && p.jt == 0) { do_jump(p); p.jt = JUMP_COOLDOWN_TICKS; }
     } else p.jt = 0;
@@ -264,25 +269,29 @@ JD bool can_hit(const P &a, const P &t) {
     return dist >= R0;
 }
 
+// 1.8.9 : /=2 et +0.4 vertical (cap 0.4) INCONDITIONNELS — la garde onGround
+// n'existe qu'en 1.9+. Indispensable au juggle aérien des combos.
 JD void knock_back(P &t, jreal rx, jreal rz, jreal kb_h, jreal kb_v) {
     jreal f = jsqrt(rx * rx + rz * rz);
     if (f < (jreal)1.0e-4) return;
-    t.vx /= R2; t.vz /= R2;
+    t.vx /= R2; t.vy /= R2; t.vz /= R2;
     t.vx -= rx / f * KNOCKBACK_STRENGTH * kb_h;
+    t.vy += KNOCKBACK_STRENGTH * kb_v;
     t.vz -= rz / f * KNOCKBACK_STRENGTH * kb_h;
-    if (t.og) {
-        t.vy /= R2;
-        t.vy += KNOCKBACK_STRENGTH * kb_v;
-        if (t.vy > KNOCKBACK_Y_CAP * kb_v) t.vy = KNOCKBACK_Y_CAP * kb_v;
-    }
+    if (t.vy > KNOCKBACK_Y_CAP * kb_v) t.vy = KNOCKBACK_Y_CAP * kb_v;
 }
 
 // retourne 1 si hit comptabilisé. kb custom : 1.0 = vanilla exact
 JD int try_attack(P &a, P &t, jreal kb_h, jreal kb_v, jreal kb_idle,
                   int target_idle) {
     if (a.ccd > 0) return 0;
-    int cd = (int)(20.0 / (double)a.h_cps + 0.5);
-    a.ccd = cd < 1 ? 1 : cd;
+    // miroir de HumanizationConfig.click_cooldown_ticks (cps <= 0 -> 0)
+    int cd = 0;
+    if (a.h_cps > 0.0f) {
+        cd = (int)(20.0 / (double)a.h_cps + 0.5);
+        if (cd < 1) cd = 1;
+    }
+    a.ccd = cd;
     if (!can_hit(a, t)) return 0;
     if (t.hurt > HURT_REHIT) return 0;
     t.hurt = MAX_HURT;
@@ -465,6 +474,7 @@ JD void reset_match(const StatePtrs &S, int n, const SimParams &pr, P *agents) {
 JD void reset_one(const StatePtrs &S, const SimParams &pr, float *obs,
                   int n, unsigned long long seed) {
     S.rng[n] = seed + (unsigned long long)n * 0x9E3779B97F4A7C15ULL + 1ULL;
+    if (S.rng[n] == 0ULL) S.rng[n] = 0x9E3779B97F4A7C15ULL;  // état zéro absorbant
     rng_next(S.rng[n]); rng_next(S.rng[n]);   // chauffe du xorshift
     P agents[2];
     reset_match(S, n, pr, agents);
@@ -575,9 +585,12 @@ JD void tick_one(const StatePtrs &S, const SimParams &pr, const float *actions,
     for (int i = 0; i < 2; ++i)
         if (dealt[1 - i]) pl[i].combo = 0;
     int win = -2;
-    if (pl[0].hits >= (int)pr.target_hits) win = 0;
-    if (pl[1].hits >= (int)pr.target_hits) win = 1;
-    if (win == -2 && tick >= (int)pr.max_ticks) {
+    bool w0 = pl[0].hits >= (int)pr.target_hits;
+    bool w1 = pl[1].hits >= (int)pr.target_hits;
+    if (w0 && w1) win = -1;      // double atteinte le même tick : égalité
+    else if (w0) win = 0;
+    else if (w1) win = 1;
+    else if (tick >= (int)pr.max_ticks) {
         win = pl[0].hits > pl[1].hits ? 0 : (pl[1].hits > pl[0].hits ? 1 : -1);
     }
 

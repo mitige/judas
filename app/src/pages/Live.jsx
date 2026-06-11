@@ -1,21 +1,30 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { usePersistentState } from "../persistence.mjs";
+
+const LIVE_DEFAULTS = {
+  model: "",
+  cps: 12,
+  rot: 40,
+  arena: { origin_x: 0, origin_z: 0, size_x: 18, size_z: 18, floor_y: 0 },
+};
 
 export default function Live({ status }) {
   const [models, setModels] = useState([]);
-  const [model, setModel] = useState("");
-  const [cps, setCps] = useState(12);
-  const [rot, setRot] = useState(40);
-  const [arena, setArena] = useState({ origin_x: 0, origin_z: 0,
-                                       size_x: 18, size_z: 18, floor_y: 0 });
+  const [settings, setSettings] = usePersistentState("judas:app:live", LIVE_DEFAULTS);
+  const [err, setErr] = useState(null);
+  const { model, cps, rot, arena } = settings;
   const live = status?.live;
+  const onErr = (e) => setErr(String(e?.message || e));
 
   useEffect(() => {
     api.models().then((d) => {
       setModels(d.exported);
-      if (d.exported[0]) setModel(d.exported[0].path);
+      if (d.exported[0]) {
+        setSettings((cur) => ({ ...cur, model: cur.model || d.exported[0].path }));
+      }
     }).catch(() => {});
-  }, []);
+  }, [setSettings]);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -24,10 +33,14 @@ export default function Live({ status }) {
     return () => clearTimeout(id);
   }, [cps, rot]);
 
-  const load = () => model && api.liveLoad(model).catch(() => {});
-  const arm = () => api.liveParams({ enabled: true, arena }).catch(() => {});
-  const kill = () => api.liveKill().catch(() => {});
-  const setA = (k) => (e) => setArena({ ...arena, [k]: +e.target.value });
+  const load = () => model && api.liveLoad(model).then(() => setErr(null)).catch(onErr);
+  const arm = () => api.liveParams({ enabled: true, arena }).then(() => setErr(null)).catch(onErr);
+  const kill = () => api.liveKill().then(() => setErr(null)).catch(onErr);
+  const setModel = (value) => setSettings((cur) => ({ ...cur, model: value }));
+  const setCps = (value) => setSettings((cur) => ({ ...cur, cps: value }));
+  const setRot = (value) => setSettings((cur) => ({ ...cur, rot: value }));
+  const setA = (k) => (e) =>
+    setSettings((cur) => ({ ...cur, arena: { ...cur.arena, [k]: +e.target.value } }));
 
   return (
     <>
@@ -51,6 +64,7 @@ export default function Live({ status }) {
             <button className="btn" onClick={load} disabled={!model}>load</button>
             <button className="btn" onClick={arm}>arm</button>
             <button className="btn danger" onClick={kill}>kill</button>
+            {err && <span className="tag" style={{ color: "var(--ember)" }}>{err}</span>}
           </div>
           <hr className="sep" />
           <Kv k="loaded" v={live?.model?.split(/[\\/]/).pop() ?? "—"} hl={!!live?.model} />

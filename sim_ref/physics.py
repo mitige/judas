@@ -79,6 +79,14 @@ def living_update_movement(p: PlayerState, strafe_in: float, forward_in: float,
     if p.jump_ticks > 0:
         p.jump_ticks -= 1
 
+    # vanilla : les micro-vitesses sont annulées en tête d'onLivingUpdate
+    if abs(p.vx) < C.MOTION_ZERO_THRESHOLD:
+        p.vx = 0.0
+    if abs(p.vy) < C.MOTION_ZERO_THRESHOLD:
+        p.vy = 0.0
+    if abs(p.vz) < C.MOTION_ZERO_THRESHOLD:
+        p.vz = 0.0
+
     if jumping:
         if p.on_ground and p.jump_ticks == 0:
             jump(p)

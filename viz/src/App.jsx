@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, connectArena } from "./api.js";
 import Arena3D from "./components/Arena3D.jsx";
+import { usePersistentState } from "./persistence.mjs";
 import Starfield from "./components/Starfield.jsx";
 
 export default function App() {
@@ -9,11 +10,12 @@ export default function App() {
   const [hud, setHud] = useState(null);          // copie basse fréquence pour le HUD
   const [victory, setVictory] = useState(null);  // {winner} affiché brièvement
   const [models, setModels] = useState([]);
-  const [sel, setSel] = useState({ a: "", b: "" });
-  const [params, setParams] = useState({ cps: 12, rot: 40, arena: 18,
-                                         target: 100, sample: true,
-                                         kb_h: 1.0, kb_v: 1.0, kb_idle: 1.0 });
-  const [speed, setSpeed] = useState(1);
+  const [sel, setSel] = usePersistentState("judas:viz:fighters", { a: "", b: "" });
+  const [params, setParams] = usePersistentState("judas:viz:params", {
+    cps: 12, rot: 40, arena: 18, target: 100, sample: true,
+    kb_h: 1.0, kb_v: 1.0, kb_idle: 1.0,
+  });
+  const [speed, setSpeed] = usePersistentState("judas:viz:speed", 1);
   const [status, setStatus] = useState(null);
   const [err, setErr] = useState(null);
 
@@ -209,8 +211,8 @@ export default function App() {
             <Kv k="wins A" v={(hud?.wins ?? status?.wins ?? [0, 0])[0]} hl />
             <Kv k="wins B" v={(hud?.wins ?? status?.wins ?? [0, 0])[1]} />
             <Kv k="draws" v={hud?.draws ?? status?.draws ?? 0} />
-            <Kv k="clicks A" v={(hud?.clicks ?? [0, 0])[0]} hl />
-            <Kv k="clicks B" v={(hud?.clicks ?? [0, 0])[1]} />
+            <Kv k="clicks A" v={(hud?.clicks ?? status?.clicks ?? [0, 0])[0]} hl />
+            <Kv k="clicks B" v={(hud?.clicks ?? status?.clicks ?? [0, 0])[1]} />
           </div>
         </aside>
       </div>

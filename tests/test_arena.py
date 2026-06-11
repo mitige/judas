@@ -7,7 +7,7 @@ torch = pytest.importorskip("torch")
 from fastapi.testclient import TestClient        # noqa: E402
 
 from serve.arena import ArenaSession             # noqa: E402
-from serve.daemon import app                     # noqa: E402
+from serve.daemon import app, arena as daemon_arena  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -23,8 +23,12 @@ def tiny_ckpt(tmp_path_factory):
 
 def test_load_and_step(tiny_ckpt):
     s = ArenaSession()
-    st = s.load(tiny_ckpt, tiny_ckpt, target_hits=5, arena_size=12.0)
+    st = s.load(tiny_ckpt, tiny_ckpt, target_hits=5, arena_size=12.0,
+                kb_h=0.9055, kb_v=0.8835, kb_idle=0.6)
     assert st["ready"] and st["models"][0] == st["models"][1]
+    assert s.cfg.kb_h_mult == 0.9055
+    assert s.cfg.kb_v_mult == 0.8835
+    assert s.cfg.kb_idle_mult == 0.6
 
     state = s.step()
     assert state["ready"]
@@ -70,8 +74,14 @@ def test_arena_rest_endpoints(tiny_ckpt):
 
     r = client.post("/arena/load", json={"model_a": tiny_ckpt,
                                          "model_b": tiny_ckpt,
-                                         "target_hits": 5})
+                                         "target_hits": 5,
+                                         "kb_h": 0.91,
+                                         "kb_v": 0.88,
+                                         "kb_idle": 0.6})
     assert r.status_code == 200 and r.json()["ready"]
+    assert daemon_arena.cfg.kb_h_mult == 0.91
+    assert daemon_arena.cfg.kb_v_mult == 0.88
+    assert daemon_arena.cfg.kb_idle_mult == 0.6
 
     r = client.post("/arena/control", json={"speed": 4.0})
     assert r.json()["speed"] == 4.0

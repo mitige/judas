@@ -4,15 +4,18 @@ Ordre d'un tick Judas (les deux agents sont résolus symétriquement) :
   1. décrément des timers (hurtResistantTime, click_cooldown)
   2. application des rotations (clamp humanisation)
   3. mise à jour du sprint (clé + forward > 0, coupé par collision murale)
-  4. résolution des attaques des deux agents sur un instantané pré-tick
-     (le serveur applique le knockback AVANT le tick de mouvement suivant)
+  4. résolution SÉQUENTIELLE des attaques (agent 0 puis agent 1, état muté
+     entre les deux — comme le serveur vanilla qui traite les paquets dans
+     l'ordre d'arrivée), avant le tick de mouvement
   5. tick de mouvement des deux agents (saut + moveEntityWithHeading)
-  6. règles boxing : victoire à target_hits, timeout
+  6. règles boxing : victoire à target_hits (double atteinte = égalité), timeout
 
 Note de fidélité : vanilla traite les paquets des deux clients dans un ordre
-réseau arbitraire ; Judas choisit la résolution simultanée sur instantané,
-symétrique et déterministe. Le sprint est de type "toggle-sprint" (re-engagé
-tant que la touche est tenue), comportement standard des clients PvP 1.8.9.
+réseau arbitraire ; Judas fixe l'ordre agent 0 puis agent 1 (déterminisme).
+Les trades restent symétriques : un hit ne bloque pas la riposte du même tick
+(hurtResistantTime ne gate que les hits REÇUS). Le sprint est de type
+"toggle-sprint" (re-engagé tant que la touche est tenue), comportement
+standard des clients PvP 1.8.9.
 """
 
 from collections import deque
@@ -105,7 +108,7 @@ class BoxingMatch:
             elif not a.sprint or a.forward <= 0 or p.collided_horizontally:
                 p.sprinting = False
 
-        # 4. attaques sur instantané pré-mouvement (symétrique)
+        # 4. attaques séquentielles (agent 0 puis 1, état muté), pré-mouvement
         for i, p in enumerate(self.players):
             if applied[i].attack:
                 tgt = applied[1 - i]
@@ -128,10 +131,15 @@ class BoxingMatch:
 
         # 6. règles boxing
         self.tick_count += 1
-        for i, p in enumerate(self.players):
-            if p.hits >= cfg.target_hits:
-                self.winner = i
-        if self.winner is None and self.tick_count >= cfg.max_ticks:
+        w0 = self.players[0].hits >= cfg.target_hits
+        w1 = self.players[1].hits >= cfg.target_hits
+        if w0 and w1:
+            self.winner = -1     # double atteinte le même tick : égalité
+        elif w0:
+            self.winner = 0
+        elif w1:
+            self.winner = 1
+        elif self.tick_count >= cfg.max_ticks:
             self.winner = _leader(self.players)  # -1 si égalité
 
     @property

@@ -1,16 +1,18 @@
 {
   "name": "boxing",
-  "total_iters": 10000,
+  "total_iters": 300,
   "n_envs": 4096,
   "rollout_ticks": 128,
   "league_frac": 0.3,
-  "pool_every": 50,
+  "league_bot_frac": 0.25,
+  "pool_every": 25,
   "save_every": 25,
+  "eval_every": 25,
   "seed": 0,
   "sim": {
     "arena_size_x": 18.0,
     "arena_size_z": 18.0,
-    "target_hits": 100,
+    "target_hits": 50,
     "max_ticks": 6000,
     "speed_amplifier": 1,
     "cps_min": 8.0,
@@ -30,8 +32,8 @@
     "randomize": true
   },
   "policy": {
-    "history": 16,
-    "d_model": 128,
+    "history": 8,
+    "d_model": 96,
     "n_heads": 4,
     "n_layers": 2
   },

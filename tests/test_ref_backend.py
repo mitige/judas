@@ -79,3 +79,60 @@ def test_randomize_unsupported_on_cpu():
     import pytest
     with pytest.raises(NotImplementedError):
         JudasSimRef(1, SimConfig(randomize=True))
+
+
+def _mirror_obs(o):
+    """Transforme une obs sous la rotation de 180° autour du centre d'arène.
+
+    Tout est égocentrique sauf : distances aux murs (o[25]<->o[26],
+    o[27]<->o[28]) et sin/cos du yaw monde (o[29], o[30] négés)."""
+    m = o.copy()
+    m[..., 25], m[..., 26] = o[..., 26].copy(), o[..., 25].copy()
+    m[..., 27], m[..., 28] = o[..., 28].copy(), o[..., 27].copy()
+    m[..., 29] = -o[..., 29]
+    m[..., 30] = -o[..., 30]
+    return m
+
+
+def test_mirror_trajectory_symmetry():
+    """Égocentrisme RÉEL sur trajectoire : échanger les deux agents (mêmes
+    séquences d'actions, rôles inversés) produit exactement les mêmes obs
+    (modulo la permutation murs/yaw), rewards, done et winner inversé.
+
+    Une asymétrie ici = un agent apprendrait un jeu différent selon son côté.
+    Seul l'agent alpha attaque (l'ordre de résolution séquentiel agent 0 puis
+    agent 1 rend les trades simultanés légitimement sensibles à l'ordre)."""
+    n, ticks = 4, 600
+    cfg = SimConfig(randomize=False, spawn_gap=1.5, target_hits=8,
+                    max_ticks=200, reward_combo=0.25, combo_window=40,
+                    combo_cap=5, reward_dist=0.002)
+    env_a = JudasSimRef(n, cfg)
+    env_b = JudasSimRef(n, cfg)
+    env_a.reset()
+    env_b.reset()
+
+    rng = np.random.default_rng(11)
+    for t in range(ticks):
+        alpha = rng.uniform(-1.0, 1.0, size=(n, 7)).astype(np.float32)
+        beta = rng.uniform(-1.0, 1.0, size=(n, 7)).astype(np.float32)
+        alpha[:, 6] = 1.0   # alpha attaque toujours
+        beta[:, 6] = 0.0    # beta jamais (trades sensibles à l'ordre exclus)
+
+        acts_a = np.stack([alpha, beta], axis=1)   # alpha = agent 0
+        acts_b = np.stack([beta, alpha], axis=1)   # alpha = agent 1
+
+        obs_a, rew_a, done_a, info_a = env_a.step(acts_a)
+        obs_b, rew_b, done_b, info_b = env_b.step(acts_b)
+
+        np.testing.assert_allclose(obs_b[:, 1], _mirror_obs(obs_a[:, 0]),
+                                   atol=2e-6, err_msg=f"obs alpha, tick {t}")
+        np.testing.assert_allclose(obs_b[:, 0], _mirror_obs(obs_a[:, 1]),
+                                   atol=2e-6, err_msg=f"obs beta, tick {t}")
+        np.testing.assert_allclose(rew_b[:, 1], rew_a[:, 0], atol=1e-5,
+                                   err_msg=f"reward alpha, tick {t}")
+        np.testing.assert_allclose(rew_b[:, 0], rew_a[:, 1], atol=1e-5,
+                                   err_msg=f"reward beta, tick {t}")
+        assert np.array_equal(done_a, done_b), f"done, tick {t}"
+        wa, wb = info_a["winner"], info_b["winner"]
+        flipped = np.where(wa >= 0, 1 - wa, wa)
+        assert np.array_equal(flipped, wb), f"winner, tick {t}"

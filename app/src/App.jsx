@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, connectEvents } from "./api.js";
 import Starfield from "./components/Starfield.jsx";
+import { usePersistentState } from "./persistence.mjs";
 import Dashboard from "./pages/Dashboard.jsx";
 import Live from "./pages/Live.jsx";
 import Models from "./pages/Models.jsx";
@@ -14,10 +15,11 @@ const PAGES = [
 ];
 
 export default function App() {
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = usePersistentState("judas:app:page", "dashboard");
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState(null);
   const [metrics, setMetrics] = useState([]);
+  const activePage = PAGES.some((p) => p.id === page) ? page : "dashboard";
 
   // flux temps réel du daemon
   useEffect(() => connectEvents((msg) => {
@@ -49,7 +51,7 @@ export default function App() {
           <nav>
             {PAGES.map((p) => (
               <button key={p.id}
-                      className={"navlink" + (page === p.id ? " active" : "")}
+                      className={"navlink" + (activePage === p.id ? " active" : "")}
                       onClick={() => setPage(p.id)}>
                 <span className="dot" />
                 {p.label}
@@ -72,10 +74,10 @@ export default function App() {
           </div>
         </aside>
         <main className="view">
-          {page === "dashboard" && <Dashboard {...ctx} />}
-          {page === "training" && <Training {...ctx} />}
-          {page === "models" && <Models {...ctx} />}
-          {page === "live" && <Live {...ctx} />}
+          {activePage === "dashboard" && <Dashboard {...ctx} />}
+          {activePage === "training" && <Training {...ctx} />}
+          {activePage === "models" && <Models {...ctx} />}
+          {activePage === "live" && <Live {...ctx} />}
         </main>
       </div>
     </>

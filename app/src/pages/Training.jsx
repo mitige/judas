@@ -1,28 +1,34 @@
 import { useState } from "react";
 import { api } from "../api.js";
+import { usePersistentState } from "../persistence.mjs";
 
 const D = {
-  name: "boxing", n_envs: 4096, rollout_ticks: 128, total_iters: 10000,
+  name: "boxing", n_envs: 4096, rollout_ticks: 128, total_iters: 300,
   lr: 0.0003, gamma: 0.995, ent_coef: 0.005, clip: 0.2, epochs: 3,
   minibatch_size: 16384,
-  league_frac: 0.3, pool_every: 50,
-  arena: 18, target_hits: 100, max_ticks: 6000,
+  league_frac: 0.3, league_bot_frac: 0.25, pool_every: 25, save_every: 25,
+  arena: 18, target_hits: 50, max_ticks: 6000,
   reward_hit: 1.0, reward_win: 10, reward_dist: 0.002,
+  reward_combo: 0.25, combo_window: 25, combo_cap: 5,
   cps_min: 8, cps_max: 16, rot_min: 20, rot_max: 60,
   delay_min: 0, delay_max: 3, spawn_jitter: 2,
-  attention: true, d_model: 128, n_layers: 2, n_heads: 4, history: 16,
+  attention: true, d_model: 96, n_layers: 2, n_heads: 4, history: 8,
   kb_h: 1.0, kb_v: 1.0, kb_idle: 1.0,
-  eval_every: 50,
+  eval_every: 25,
   resume: false, autorestart: true,
 };
 
 export default function Training({ status }) {
-  const [f, setF] = useState(D);
+  const [f, setF] = usePersistentState("judas:app:training", D);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const running = status?.training?.running;
+  const trainingError = status?.training?.last_error;
   const set = (k) => (e) =>
-    setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+    setF((cur) => ({
+      ...cur,
+      [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value,
+    }));
 
   const start = async () => {
     setBusy(true); setErr(null);
@@ -30,7 +36,9 @@ export default function Training({ status }) {
       await api.trainingStart({
         name: f.name, n_envs: +f.n_envs, rollout_ticks: +f.rollout_ticks,
         total_iters: +f.total_iters, league_frac: +f.league_frac,
-        pool_every: +f.pool_every, eval_every: +f.eval_every,
+        league_bot_frac: +f.league_bot_frac,
+        pool_every: +f.pool_every, save_every: +f.save_every,
+        eval_every: +f.eval_every,
         autorestart: f.autorestart,
         policy: {
           attention: f.attention, d_model: +f.d_model,
@@ -45,6 +53,8 @@ export default function Training({ status }) {
           target_hits: +f.target_hits, max_ticks: +f.max_ticks,
           reward_hit: +f.reward_hit, reward_hurt: -f.reward_hit,
           reward_win: +f.reward_win, reward_dist: +f.reward_dist,
+          reward_combo: +f.reward_combo, combo_window: +f.combo_window,
+          combo_cap: +f.combo_cap,
           cps_min: +f.cps_min, cps_max: +f.cps_max,
           rot_speed_min: +f.rot_min, rot_speed_max: +f.rot_max,
           delay_min: +f.delay_min, delay_max: +f.delay_max,
@@ -109,7 +119,9 @@ export default function Training({ status }) {
           <div className="label">league</div>
           <div className="grid cols-3">
             <Field l="league %" v={f.league_frac} on={set("league_frac")} step="0.05" />
+            <Field l="bot league" v={f.league_bot_frac} on={set("league_bot_frac")} step="0.05" />
             <Field l="snapshot every" v={f.pool_every} on={set("pool_every")} />
+            <Field l="save every" v={f.save_every} on={set("save_every")} />
             <Field l="eval every" v={f.eval_every} on={set("eval_every")} />
           </div>
         </div>
@@ -131,6 +143,9 @@ export default function Training({ status }) {
             <Field l="hit" v={f.reward_hit} on={set("reward_hit")} step="0.1" />
             <Field l="win" v={f.reward_win} on={set("reward_win")} step="1" />
             <Field l="distance" v={f.reward_dist} on={set("reward_dist")} step="0.001" />
+            <Field l="combo" v={f.reward_combo} on={set("reward_combo")} step="0.05" />
+            <Field l="combo window" v={f.combo_window} on={set("combo_window")} />
+            <Field l="combo cap" v={f.combo_cap} on={set("combo_cap")} />
           </div>
         </div>
         <div className="panel">
@@ -177,6 +192,9 @@ export default function Training({ status }) {
             </span>
           )}
           {err && <span className="tag" style={{ color: "var(--ember)" }}>{err}</span>}
+          {!running && trainingError && (
+            <span className="tag" style={{ color: "var(--ember)" }}>{trainingError}</span>
+          )}
         </div>
       </div>
     </>

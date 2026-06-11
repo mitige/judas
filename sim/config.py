@@ -41,6 +41,26 @@ class SimConfig:
     # Divers
     randomize: bool = False             # active jitter + randomization humanisation
 
+    def __post_init__(self):
+        # Le kernel clampe h_delay à MAX_ACTION_DELAY-1 (file circulaire) ;
+        # la référence honorerait n'importe quel delay -> refuser en amont
+        # plutôt que diverger silencieusement.
+        if not (0 <= self.delay_min <= self.delay_max <= MAX_ACTION_DELAY - 1):
+            raise ValueError(
+                f"delay_min/delay_max doivent vérifier 0 <= min <= max <= "
+                f"{MAX_ACTION_DELAY - 1} (file kernel), reçu "
+                f"({self.delay_min}, {self.delay_max})")
+        if self.cps_min <= 0 or self.cps_max < self.cps_min:
+            raise ValueError(
+                f"cps_min/cps_max invalides : ({self.cps_min}, {self.cps_max})")
+        # Le kernel caste combo_window/combo_cap en int : exiger des entiers
+        # pour qu'aucune divergence kernel <-> ref ne soit possible.
+        if self.combo_window != int(self.combo_window) \
+                or self.combo_cap != int(self.combo_cap):
+            raise ValueError("combo_window et combo_cap doivent être entiers")
+        self.combo_window = int(self.combo_window)
+        self.combo_cap = int(self.combo_cap)
+
     def as_floats(self) -> list:
         """Sérialise pour le kernel CUDA (ordre = struct SimParams du .cu)."""
         return [

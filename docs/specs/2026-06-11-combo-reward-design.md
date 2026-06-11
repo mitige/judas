@@ -152,6 +152,8 @@ contenu vs `reward_win=10`. Les trois champs sont ajoutés à `as_floats()`
 
 - Hurt-cam / perturbation de visée (option écartée par l'utilisateur).
 - Modification d'`OBS_DIM` (le combo n'est pas observé directement ; la
-  policy transformer dispose de 16 ticks d'historique).
+  policy transformer dispose de 8 ticks d'historique — `policy.history`,
+  boxing.json. NB : 8 < combo_window=25, l'état de chaîne est donc
+  partiellement inobservable ; tension assumée, voir « Validation »).
 - Setter hot-reload type `set_reward_dist` (paramètre statique par run).
 - GUI de configuration dans l'app (boxing.json suffit).

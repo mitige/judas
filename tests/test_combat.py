@@ -82,17 +82,30 @@ def test_knockback_custom_multipliers():
     assert abs(t2.vz - 0.4 * 0.6) < 1e-9
     assert abs(t2.vy - 0.4 * 0.6) < 1e-9
 
-    a3, t3 = duo(dist=2.0)          # idle mais victime avec input -> vanilla
+    a3, t3 = duo(dist=2.0)
     try_attack(a3, t3, 0, kb_idle=0.6, target_idle=False)
     assert abs(t3.vz - 0.4) < 1e-9
 
 
-def test_knockback_airborne_no_vertical_boost():
+def test_knockback_airborne_keeps_vertical_boost_189():
+    """1.8.9 : le +0.4 vertical s'applique AUSSI en l'air (le juggle aérien).
+    La garde onGround n'existe qu'en 1.9+."""
     a, t = duo(dist=2.0)
     t.on_ground = False
     t.y = 0.5
+    t.vy = -0.2                          # en train de retomber
     try_attack(a, t, click_cooldown_ticks=2)
-    assert t.vy == 0.0                   # pas de +0.4 en l'air
+    assert abs(t.vy - (-0.1 + 0.4)) < 1e-9   # vy/2 puis +0.4 (cap 0.4)
+
+
+def test_knockback_vertical_cap_applies_in_air():
+    """Cible déjà en pleine ascension : le cap 0.4 borne le cumul."""
+    a, t = duo(dist=2.0)
+    t.on_ground = False
+    t.y = 0.5
+    t.vy = 0.5
+    try_attack(a, t, click_cooldown_ticks=2)
+    assert abs(t.vy - 0.4) < 1e-9        # 0.25 + 0.4 = 0.65 -> cap 0.4
 
 
 # ----------------------------------------------------- hurtResistantTime

@@ -33,12 +33,16 @@ def _load_extension(precision: str):
         # RTX 3060 = compute 8.6 ; évite de compiler pour toutes les archs
         os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "8.6")
         csrc = Path(__file__).parent / "csrc" / "boxing_kernel.cu"
+        binding = Path(__file__).parent / "csrc" / "boxing_binding.cpp"
         flags = ["-O3"]
+        if os.name == "nt":
+            # CUDA 12.9 rejects Visual Studio 2026's MSVC version by default.
+            flags.append("-allow-unsupported-compiler")
         if precision == "double":
             flags.append("-DJUDAS_DOUBLE")
         _ext_cache[precision] = load(
             name=f"judas_boxing_{precision}",
-            sources=[str(csrc)],
+            sources=[str(csrc), str(binding)],
             extra_cuda_cflags=flags,
             extra_cflags=["-DJUDAS_DOUBLE"] if precision == "double" else [],
             verbose=False,
@@ -87,7 +91,11 @@ class JudasSim:
 
     def step(self, actions: torch.Tensor):
         """actions float32 [N, 2, 7] sur le device.
-        -> (obs [N,2,48], reward [N,2], done [N] uint8, info)"""
+        -> (obs [N,2,48], reward [N,2], done [N] uint8, info)
+
+        ATTENTION : les tenseurs retournés sont les buffers internes,
+        réécrits in-place au step suivant (zéro copie). Cloner pour
+        conserver un tick (le Trainer le fait via _sim_step)."""
         actions = actions.to(self.device, torch.float32).contiguous()
         self.ext.tick(self._pos, self._ints, self._human, self._tick,
                       self._queue, self._last, self._rng, actions, self.obs,

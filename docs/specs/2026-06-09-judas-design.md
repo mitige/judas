@@ -36,8 +36,10 @@ Port exact du code décompilé MCP 1.8.9 :
 - Collisions : AABB joueur 0.6×1.8, résolution par axe (Y puis X puis Z),
   sol y=0 + 4 murs ; collision horizontale coupe le sprint et annule motionX/Z
 - Attaque : raycast œil (1.62) → vecteur de visée vs AABB adverse étendue de 0.1, reach 3.0
-- Knockback : `motionX/Z ÷= 2` puis `−= ratio/dist × 0.4` ; si au sol `motionY = motionY/2 + 0.4`
-  (cap 0.4) ; bonus sprint : `addVelocity(−sin(yaw)×0.5, 0.1, cos(yaw)×0.5)`,
+- Knockback : `motionX/Y/Z ÷= 2` puis `motionX/Z −= ratio/dist × 0.4` et
+  `motionY += 0.4` (cap 0.4) — **inconditionnel en 1.8.9** (la garde onGround
+  n'apparaît qu'en 1.9 ; c'est le juggle aérien des combos) ; bonus sprint :
+  `addVelocity(−sin(yaw)×0.5, 0.1, cos(yaw)×0.5)`,
   attaquant : `motionX/Z ×= 0.6` + sprint reset
 - `hurtResistantTime = 20` ticks ; re-hit bloqué tant que > 10 (dégâts égaux en boxing)
 - Boxing : compteur de hits, victoire à 100, budget CPS, 20 TPS

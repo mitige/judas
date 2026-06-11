@@ -1,11 +1,20 @@
 """Tests de fumée de l'entraînement (CPU, configurations minuscules)."""
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
 
-from train.model import JudasPolicy, PolicyConfig, to_sim_actions  # noqa: E402
+from train.model import (                                         # noqa: E402
+    JudasPolicy,
+    PolicyConfig,
+    _bernoulli_entropy_from_logits,
+    _categorical_entropy_from_logits,
+    to_sim_actions,
+)
 from train.run import Trainer                                       # noqa: E402
 
 TINY = {
@@ -42,6 +51,37 @@ def test_policy_forward_shapes():
     assert torch.isfinite(out["value"]).all()
 
 
+def test_boxing_short_run_profile_defaults():
+    """Profil court RTX 3060 : ~315M steps, modèle 96x8, matchs courts."""
+    from train.run import DEFAULT_CFG
+
+    boxing = json.loads(Path("train/configs/boxing.json").read_text())
+    policy = PolicyConfig()
+
+    for cfg in (DEFAULT_CFG, boxing):
+        assert cfg["total_iters"] == 300
+        assert cfg["pool_every"] == 25
+        assert cfg["save_every"] == 25
+        assert cfg["eval_every"] == 25
+        assert cfg["league_bot_frac"] == 0.25
+        assert cfg["sim"]["target_hits"] == 50
+        assert cfg["policy"]["history"] == 8
+        assert cfg["policy"]["d_model"] == 96
+        assert cfg["policy"]["n_layers"] == 2
+        assert cfg["policy"]["n_heads"] == 4
+
+    assert policy.history == 8
+    assert policy.d_model == 96
+    assert policy.n_layers == 2
+    assert policy.n_heads == 4
+
+
+def test_ppo_value_clip_disabled_by_default():
+    from train.ppo import PPOConfig
+
+    assert PPOConfig().value_clip == 0.0
+
+
 def test_evaluate_matches_act_logp():
     """Le logp d'evaluate() doit être identique à celui d'act() (même action)."""
     pol = JudasPolicy(PolicyConfig(history=4, d_model=32, n_heads=2, n_layers=1))
@@ -54,6 +94,34 @@ def test_evaluate_matches_act_logp():
     assert torch.allclose(value, out["value"], atol=1e-5)
     assert torch.isfinite(entropy).all()
     assert aux.shape == (7, 7)
+
+
+def test_entropy_helpers_handle_saturated_half_logits():
+    logits = torch.tensor([[100.0, -100.0, 0.0]], dtype=torch.float16)
+
+    ent_cat = _categorical_entropy_from_logits(logits)
+    ent_bin = _bernoulli_entropy_from_logits(logits)
+
+    assert torch.isfinite(ent_cat).all()
+    assert torch.isfinite(ent_bin).all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA requis")
+def test_evaluate_entropy_finite_under_amp_with_saturated_binary_logits():
+    pol = JudasPolicy(PolicyConfig(history=4, d_model=32, n_heads=2,
+                                   n_layers=1)).cuda()
+    with torch.no_grad():
+        pol.bin_head.weight.zero_()
+        pol.bin_head.bias.fill_(100.0)
+
+    hist = torch.zeros(8, 4, pol.cfg.obs_dim, device="cuda")
+    out = pol.act(hist)
+    raw = {k: out[k] for k in ("pre", "fwd", "strafe", "bins")}
+
+    with torch.amp.autocast("cuda", enabled=True):
+        _, entropy, _, _ = pol.evaluate(hist, raw)
+
+    assert torch.isfinite(entropy).all()
 
 
 def test_to_sim_actions_ranges():
@@ -203,3 +271,67 @@ def test_export_torchscript(tiny_trainer, tmp_path):
     a = mod(hist)
     assert a.shape == (1, 7)
     assert (a[:, 0:2].abs() <= 1.0).all()
+
+
+def _zero_raw(b):
+    return {"pre": torch.zeros(b, 2), "fwd": torch.zeros(b, dtype=torch.long),
+            "strafe": torch.zeros(b, dtype=torch.long), "bins": torch.zeros(b, 3)}
+
+
+def test_gae_respects_done_boundaries():
+    """Le done au milieu du buffer coupe le bootstrap ET la propagation GAE."""
+    from train.buffer import RolloutBuffer
+    T, B = 5, 1
+    buf = RolloutBuffer(T, B, obs_dim=2, history=1, device=torch.device("cpu"))
+    for t in range(T):
+        buf.add(torch.zeros(B, 2), torch.zeros(B, dtype=torch.long),
+                _zero_raw(B), torch.zeros(B), torch.zeros(B),   # logp, value=0
+                torch.ones(B),                                  # reward = 1
+                torch.ones(B) if t == 2 else torch.zeros(B))    # done au tick 2
+    buf.compute_gae(torch.zeros(B), gamma=0.9, lam=1.0)
+    # values nulles -> adv = somme discountée des rewards jusqu'au done
+    assert abs(buf.adv[2, 0].item() - 1.0) < 1e-6      # done : pas de suite
+    assert abs(buf.adv[3, 0].item() - 1.9) < 1e-6      # 1 + 0.9 (fin de buffer)
+    assert abs(buf.adv[0, 0].item() - 2.71) < 1e-6     # 1 + 0.9 * adv[1]
+
+
+def test_windows_mask_pre_episode_history():
+    """windows() reconstruit l'historique et masque les ticks d'AVANT le
+    reset d'épisode (age) — exactement ce que voit la policy au rollout."""
+    from train.buffer import RolloutBuffer
+    T, B, H = 4, 1, 3
+    buf = RolloutBuffer(T, B, obs_dim=1, history=H, device=torch.device("cpu"))
+    hist0 = torch.tensor([[[-2.0], [-1.0], [1.0]]])    # historique avant le rollout
+    buf.set_prefix(hist0)
+    ages = [5, 6, 0, 1]                                 # reset au tick 2
+    for t in range(T):
+        buf.add(torch.full((B, 1), float(t + 1)),
+                torch.tensor([ages[t]]), _zero_raw(B),
+                torch.zeros(B), torch.zeros(B), torch.zeros(B), torch.zeros(B))
+    # t=3 (age 1) : fenêtre brute [2, 3, 4], le 1er tick précède le reset
+    win = buf.windows(torch.tensor([3]), torch.tensor([0]))
+    assert win.shape == (1, H, 1)
+    np.testing.assert_allclose(win[0, :, 0].numpy(), [0.0, 3.0, 4.0])
+    # t=1 (age 6 >= H) : fenêtre complète [prefix[-1], obs[0], obs[1]]
+    win = buf.windows(torch.tensor([1]), torch.tensor([0]))
+    np.testing.assert_allclose(win[0, :, 0].numpy(), [-1.0, 1.0, 2.0])
+
+
+def test_export_parity_with_policy(tiny_trainer, tmp_path):
+    """Le .pts exporté doit produire EXACTEMENT l'action déterministe de la
+    policy d'entraînement sur les mêmes obs — parité train <-> inférence."""
+    from train.export import export
+    tiny_trainer.train_iter()
+    ckpt = tiny_trainer.save()
+    out = export(str(ckpt), str(tmp_path / "m.pts"))
+    mod = torch.jit.load(str(out)).eval()
+
+    policy = tiny_trainer.policy.eval()
+    hist = torch.randn(16, 4, 48)
+    with torch.no_grad():
+        a_export = mod(hist)
+        act = policy.act(hist, deterministic=True)
+        a_policy = to_sim_actions(
+            {k: act[k] for k in ("pre", "fwd", "strafe", "bins")})
+    assert torch.allclose(a_export, a_policy, atol=1e-6), \
+        "export TorchScript != policy déterministe sur les mêmes obs"

@@ -5,13 +5,13 @@ sans GPU. Sur le PC 3060, tests/test_equivalence.py valide en plus l'exécution
 CUDA réelle (indexation, lancement, mémoire).
 """
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from helpers import HAS_CPU_CHECK_COMPILER, build_cpu_check
 from sim import SimConfig
 from sim.ref_backend import JudasSimRef
 from sim.verify import random_actions
@@ -20,30 +20,20 @@ ROOT = Path(__file__).resolve().parent.parent
 N_ENVS = 8
 N_TICKS = 600
 
-pytestmark = pytest.mark.skipif(shutil.which("g++") is None,
-                                reason="g++ requis")
-
-
-def _build(tmp, define=None):
-    out = tmp / ("judas_cpu_check_" + (define or "float"))
-    cmd = ["g++", "-O2", "-I", str(ROOT / "sim" / "csrc")]
-    if define:
-        cmd.append(f"-D{define}")
-    cmd += ["-o", str(out), str(ROOT / "tools" / "cpu_check.cpp")]
-    subprocess.run(cmd, check=True, capture_output=True)
-    return out
+pytestmark = pytest.mark.skipif(not HAS_CPU_CHECK_COMPILER,
+                                reason="g++ ou cl (MSVC) requis")
 
 
 @pytest.fixture(scope="module")
 def binary(tmp_path_factory):
     """Build double : équivalence stricte avec sim_ref (1e-6)."""
-    return _build(tmp_path_factory.mktemp("cpu_check"), "JUDAS_DOUBLE")
+    return build_cpu_check(tmp_path_factory.mktemp("cpu_check"), "JUDAS_DOUBLE")
 
 
 @pytest.fixture(scope="module")
 def binary_f32(tmp_path_factory):
     """Build float32 (celui de l'entraînement) : test de stabilité."""
-    return _build(tmp_path_factory.mktemp("cpu_check_f32"))
+    return build_cpu_check(tmp_path_factory.mktemp("cpu_check_f32"))
 
 
 def test_kernel_logic_matches_sim_ref(binary, tmp_path):
@@ -98,6 +88,53 @@ def test_kernel_logic_matches_sim_ref(binary, tmp_path):
 
     assert off == raw.nbytes
     print(f"écart max obs sur {N_TICKS} ticks : {worst:.2e}")
+
+
+def test_kernel_action_delay_matches_sim_ref(binary, tmp_path):
+    """La file circulaire de latence du kernel (h_delay > 0) reproduit la
+    deque de la référence — y compris le démarrage (actions nulles les d
+    premiers ticks) et l'interaction avec le combat."""
+    cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=15,
+                    max_ticks=300, delay_min=2, delay_max=2,
+                    reward_combo=0.25, combo_window=60, combo_cap=5)
+
+    rng = np.random.default_rng(42)
+    acts = np.stack([random_actions(rng, N_ENVS) for _ in range(N_TICKS)])
+    acts[..., 6] = 1.0   # attaque permanente : densifie hits et chaînes
+    actions_f = tmp_path / "actions.bin"
+    acts.astype(np.float32).tofile(actions_f)
+    params_f = tmp_path / "params.txt"
+    params_f.write_text("\n".join(repr(float(v)) for v in cfg.as_floats()))
+    out_f = tmp_path / "out.bin"
+
+    subprocess.run([str(binary), str(N_ENVS), str(N_TICKS),
+                    str(actions_f), str(out_f), str(params_f)], check=True)
+
+    raw = np.fromfile(out_f, dtype=np.uint8)
+    obs_sz = N_ENVS * 2 * 48 * 4
+    rew_sz = N_ENVS * 2 * 4
+    off = obs_sz  # saute les obs de reset
+
+    ref = JudasSimRef(N_ENVS, cfg)
+    ref.reset()
+    for t in range(N_TICKS):
+        obs_c = raw[off:off + obs_sz].view(np.float32).reshape(N_ENVS, 2, 48)
+        off += obs_sz
+        rew_c = raw[off:off + rew_sz].view(np.float32).reshape(N_ENVS, 2)
+        off += rew_sz
+        done_c = raw[off:off + N_ENVS].astype(bool)
+        off += N_ENVS
+        win_c = raw[off:off + N_ENVS * 4].view(np.int32)
+        off += N_ENVS * 4
+
+        obs_r, rew_r, done_r, info = ref.step(acts[t])
+        np.testing.assert_allclose(obs_c, obs_r, atol=1e-6,
+                                   err_msg=f"obs divergentes au tick {t}")
+        np.testing.assert_allclose(rew_c, rew_r, atol=1e-6,
+                                   err_msg=f"reward divergent au tick {t}")
+        assert np.array_equal(done_c, done_r), f"done divergent au tick {t}"
+        assert np.array_equal(win_c, info["winner"]), f"winner divergent au tick {t}"
+    assert off == raw.nbytes
 
 
 def test_kernel_float32_stable(binary_f32, tmp_path):

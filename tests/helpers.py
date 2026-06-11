@@ -1,9 +1,44 @@
 """Aides communes aux tests sim_ref."""
 
 import math
+import shutil
+import subprocess
+from pathlib import Path
 
 from sim_ref import Action, BoxingConfig, BoxingMatch, HumanizationConfig
 from sim_ref.constants import PLAYER_EYE_HEIGHT
+
+ROOT = Path(__file__).resolve().parent.parent
+
+HAS_CPU_CHECK_COMPILER = bool(shutil.which("g++") or shutil.which("cl"))
+
+
+def build_cpu_check(out_dir: Path, define: str | None = None) -> Path:
+    """Compile tools/cpu_check.cpp (logique exacte du kernel) -> binaire.
+
+    g++ si présent, sinon cl (MSVC, mis sur le PATH par scripts/env.bat).
+    """
+    name = "judas_cpu_check_" + (define or "float")
+    src = ROOT / "tools" / "cpu_check.cpp"
+    include = ROOT / "sim" / "csrc"
+    if shutil.which("g++"):
+        out = out_dir / name
+        cmd = ["g++", "-O2", "-I", str(include)]
+        if define:
+            cmd.append(f"-D{define}")
+        cmd += ["-o", str(out), str(src)]
+    else:
+        out = out_dir / f"{name}.exe"
+        cmd = ["cl", "/nologo", "/O2", "/EHsc", f"/I{include}"]
+        if define:
+            cmd.append(f"/D{define}")
+        cmd += [f"/Fe:{out}", f"/Fo{out_dir}\\", str(src)]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"compilation cpu_check échouée ({cmd[0]}):\n"
+            f"{proc.stdout}\n{proc.stderr}")
+    return out
 
 
 def free_humanization() -> HumanizationConfig:

@@ -34,11 +34,15 @@ class LiveSession:
         self.params = LiveParams()
         self.model = None
         self.model_path: str | None = None
-        self.history = 16
+        # 8 = PolicyConfig.history par défaut (16 ferait crasher un modèle
+        # entraîné aux défauts si le .json d'export manque)
+        self.history = 8
+        self.max_ticks = SimConfig().max_ticks
         self.hist = None
         self.last_action = [0.0] * 7
         self.click_cooldown = 0
         self.tick = 0
+        self._last_hits: tuple | None = None
         self.last_latency_ms = 0.0
 
     # ------------------------------------------------------------------ model
@@ -48,7 +52,9 @@ class LiveSession:
         meta_path = p.with_suffix(".json")
         if meta_path.exists():
             meta = json.loads(meta_path.read_text())
-        self.history = int(meta.get("history", 16))
+        self.history = int(meta.get("history", 8))
+        # contrat d'obs identique à l'entraînement : o[34] dépend de max_ticks
+        self.max_ticks = int(meta.get("max_ticks", SimConfig().max_ticks))
         self.model = torch.jit.load(str(p), map_location=self.device).eval()
         self.model_path = str(p)
         self.reset()
@@ -63,6 +69,7 @@ class LiveSession:
         self.last_action = [0.0] * 7
         self.click_cooldown = 0
         self.tick = 0
+        self._last_hits = None
 
     # ------------------------------------------------------------------ state
     def on_state(self, msg: dict) -> dict | None:
@@ -74,11 +81,22 @@ class LiveSession:
 
         own = player_from_msg(msg["self"], pr.arena)
         opp = player_from_msg(msg["target"], pr.arena)
+
+        # frontière de match : les compteurs de hits repartent à zéro ->
+        # purge historique/tick/cooldown (sinon o[34] dérive en négatif et
+        # l'historique traverse les matchs : entrées hors distribution)
+        hits_now = (own.hits, opp.hits)
+        if self._last_hits is not None and (hits_now[0] < self._last_hits[0]
+                                            or hits_now[1] < self._last_hits[1]):
+            self.reset()
+        self._last_hits = hits_now
         own.click_cooldown = self.click_cooldown
 
-        cfg = SimConfig(arena_size_x=pr.arena.size_x, arena_size_z=pr.arena.size_z)
+        cfg = SimConfig(arena_size_x=pr.arena.size_x, arena_size_z=pr.arena.size_z,
+                        max_ticks=self.max_ticks)
         h = HumanizationConfig(max_cps=pr.max_cps, max_rot_speed=pr.max_rot_speed)
-        obs = build_obs(own, opp, cfg, h, self.last_action, self.tick)
+        obs = build_obs(own, opp, cfg, h, self.last_action,
+                        min(self.tick, self.max_ticks))
 
         self.hist = torch.roll(self.hist, shifts=-1, dims=1)
         self.hist[0, -1] = torch.tensor(obs, dtype=torch.float32,

@@ -1,0 +1,13 @@
+{
+  "name": "judas-tools",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Outils de test Node du repo : persistence UI + smoke E2E Playwright",
+  "scripts": {
+    "test:persistence": "node --test tools/persistence.test.mjs",
+    "test:ui": "node tools/ui_smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}

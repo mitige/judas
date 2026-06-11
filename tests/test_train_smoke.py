@@ -76,6 +76,7 @@ def test_trainer_two_iters(tiny_trainer):
     for m in (m1, m2):
         assert np.isfinite(m["reward_mean"])
         assert np.isfinite(m["approx_kl"])
+        assert "combo_hits" in m
     assert m2["pool_size"] >= 1
     assert (tiny_trainer.run_dir / "metrics.jsonl").exists()
 

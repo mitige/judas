@@ -24,6 +24,9 @@
     "reward_hurt": -1.0,
     "reward_win": 10.0,
     "reward_dist": 0.002,
+    "reward_combo": 0.25,
+    "combo_window": 25,
+    "combo_cap": 5,
     "randomize": true
   },
   "policy": {

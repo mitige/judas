@@ -208,7 +208,7 @@ def test_kernel_combo_matches_ref(tmp_path):
         combo_ticks += int((np.abs(rew_r[~done_r]) > 1.1).any())
 
     assert off == raw.nbytes
-    assert combo_ticks > 0, "aucun hit en chaîne sur 600 ticks — test inopérant"
+    assert combo_ticks > 0, "aucun hit en chaîne — test inopérant"
 
 
 @pytest.mark.skipif(shutil.which("g++") is None, reason="g++ requis")

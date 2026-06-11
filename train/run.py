@@ -294,6 +294,16 @@ class Trainer:
         sprint_act = (buf.bins[:, lm, 1] > 0.5) & (buf.fwd[:, lm] == 2)
         sprint_hit = float((hits_mask & sprint_act).float().sum()
                            / hits_mask.float().sum().clamp(min=1.0))
+        # % de hits portés en chaîne (bonus combo > 0) — thermomètre du
+        # style combo ; 0 si le shaping est désactivé
+        rc = float(self.sim_cfg.reward_combo)
+        if rc > 0.0:
+            hits_bounded = hits_mask & (buf.reward[:, lm] < 5.0)  # exclut le win
+            combo_mask = buf.reward[:, lm] > self.sim_cfg.reward_hit + 0.5 * rc
+            combo_hit = float((hits_bounded & combo_mask).float().sum()
+                              / hits_bounded.float().sum().clamp(min=1.0))
+        else:
+            combo_hit = 0.0
         self._update_ramp(hit_rate)
         shaping = self._auto_shaping()
         spawn_gap = self._auto_curriculum()
@@ -333,6 +343,7 @@ class Trainer:
             "matches": ep["matches"],
             "hit_rate": round(hit_rate, 2),
             "sprint_hits": round(sprint_hit, 4),
+            "combo_hits": round(combo_hit, 4),
             "shaping": round(shaping, 6),
             "spawn_gap": round(spawn_gap, 2),
             "ramp": round(self._ramp_pos, 3),

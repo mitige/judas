@@ -22,7 +22,10 @@ class PPOConfig:
     amp: bool = True
     # stabilité / qualité d'apprentissage
     target_kl: float = 0.02      # early-stop des epochs si KL moyen dépasse 1.5x
-    value_clip: float = 0.2      # clipping PPO2 du critic (0 = désactivé)
+    # 0 = désactivé. ATTENTION : sur notre échelle de rewards (win ±10), un
+    # clip serré (ex 0.2) étrangle le critic -> advantages bruités -> policy
+    # qui n'apprend plus (clip frac ~1%, entropy bloquée au max).
+    value_clip: float = 0.0
     anneal: bool = True          # lr et entropie -> 0 linéairement sur le run
     sample_frac: float = 0.5     # fraction du buffer utilisée par epoch (vitesse)
     aux_coef: float = 0.05       # loss auxiliaire : prédire l'adversaire à t+1

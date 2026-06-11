@@ -1,6 +1,12 @@
 import { BigChart, Sparkline } from "../components/Charts.jsx";
 
-const last = (arr, k) => (arr.length ? arr[arr.length - 1][k] : null);
+// dernière valeur DÉFINIE (les évals n'existent qu'une itération sur N)
+const last = (arr, k) => {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (arr[i][k] != null) return arr[i][k];
+  }
+  return null;
+};
 const series = (arr, k) => arr.map((m) => m[k]).filter((v) => v != null);
 
 export default function Dashboard({ status, metrics }) {

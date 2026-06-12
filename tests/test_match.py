@@ -32,6 +32,39 @@ def test_pitch_clamped_to_90():
     assert m.players[0].pitch == 90.0
 
 
+def test_aim_smooth_motor_model():
+    """aim_smooth=0.5 : la rotation appliquée est l'EMA de la commande —
+    convergence géométrique vers la commande, pas de snap instantané."""
+    cfg = BoxingConfig(humanization=(
+        HumanizationConfig(max_rot_speed=40.0, aim_smooth=0.5),
+        HumanizationConfig(),
+    ))
+    m = BoxingMatch(cfg)
+    yaws = []
+    for _ in range(3):
+        m.step((Action(dyaw=10.0), Action()))
+        yaws.append(m.players[0].yaw)
+    # aim: 5.0 puis 7.5 puis 8.75 -> yaw cumulé 5.0, 12.5, 21.25
+    assert abs(yaws[0] - 5.0) < 1e-12
+    assert abs(yaws[1] - 12.5) < 1e-12
+    assert abs(yaws[2] - 21.25) < 1e-12
+    # l'inertie persiste après l'arrêt de la commande (pas d'arrêt sec)
+    m.step((Action(dyaw=0.0), Action()))
+    assert abs(m.players[0].yaw - (21.25 + 8.75 / 2)) < 1e-12
+
+
+def test_aim_smooth_zero_is_transparent():
+    """aim_smooth=0 (défaut) : rotation appliquée = commande, comportement
+    historique inchangé."""
+    cfg = BoxingConfig(humanization=(
+        HumanizationConfig(max_rot_speed=40.0, aim_smooth=0.0),
+        HumanizationConfig(),
+    ))
+    m = BoxingMatch(cfg)
+    m.step((Action(dyaw=10.0), Action()))
+    assert m.players[0].yaw == 10.0
+
+
 def test_action_delay_queue():
     """Avec une latence de 2 ticks, l'action n'agit qu'au 3e step."""
     cfg = BoxingConfig(humanization=(
@@ -72,14 +105,17 @@ def test_hit_rate_capped_by_hurt_time():
     assert ticks >= 10 * 10 - 10  # ~10 ticks minimum entre deux hits
 
 
-def test_winner_by_timeout_leader():
+def test_timeout_is_draw_even_for_leader():
+    """Anti-stall : mener au score au timeout ne donne PAS la victoire —
+    la seule façon de gagner est d'atteindre target_hits."""
     m = make_match(target_hits=100, max_ticks=80)
     while not m.done:
         atk = aim_action(m.players[0], m.players[1],
                          forward=1, sprint=True, attack=True)
         m.step((atk, Action()))
-    assert m.winner == 0  # a frappé au moins une fois avant le timeout
+    assert m.players[0].hits > 0          # le leader a bien frappé
     assert m.players[0].hits < 100
+    assert m.winner == -1                 # ... mais le timeout reste une égalité
 
 
 def test_timeout_draw():

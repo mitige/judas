@@ -16,6 +16,13 @@ test("app and viz persistence copies are byte-identical", () => {
   );
 });
 
+test("app and viz Logo copies are byte-identical", () => {
+  assert.equal(
+    fs.readFileSync(new URL("../app/src/components/Logo.jsx", import.meta.url), "utf8"),
+    fs.readFileSync(new URL("../viz/src/components/Logo.jsx", import.meta.url), "utf8"),
+  );
+});
+
 function memoryStorage(seed = {}) {
   const data = new Map(Object.entries(seed));
   return {

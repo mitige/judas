@@ -120,15 +120,17 @@ struct SimParams {
     float spawn_gap;     // demi-distance de spawn (0 = arène/3)
     float kb_h, kb_v, kb_idle;   // knockback custom (1.0 = vanilla)
     float r_combo, combo_window, combo_cap;   // bonus combo (0 = off)
+    float smooth_min, smooth_max;   // inertie de visée [0,1) (0 = instantané)
 };
 
 // État d'un agent en registres
 struct P {
     jreal x, y, z, vx, vy, vz, yaw, pitch;
+    jreal aim_y, aim_p;        // modèle moteur de visée (EMA de la commande)
     int hurt, jt, ccd, hits;
     int og, spr, col;          // on_ground, sprinting, collided_horizontally
     int combo, last_hit;       // chaîne de hits portés, tick du dernier hit
-    float h_cps, h_rot;        // humanisation
+    float h_cps, h_rot, h_smooth;   // humanisation
     int h_delay;
 };
 
@@ -393,9 +395,9 @@ JD void write_obs(float *o, const P &own, const P &opp,
 
 // --------------------------------------------------------------- état mémoire
 struct StatePtrs {
-    jreal *pos;         // [N,2,8] x,y,z,vx,vy,vz,yaw,pitch
+    jreal *pos;         // [N,2,10] x,y,z,vx,vy,vz,yaw,pitch,aim_y,aim_p
     int *ints;          // [N,2,10] hurt, jt, ccd, hits, og, spr, col, h_delay, combo, last_hit
-    float *human;       // [N,2,2] h_cps, h_rot
+    float *human;       // [N,2,3] h_cps, h_rot, h_smooth
     int *tick;          // [N]
     float *queue;       // [N,2,MAX_DELAY,ACT_DIM]
     float *last_act;    // [N,2,ACT_DIM]
@@ -403,29 +405,31 @@ struct StatePtrs {
 };
 
 JD void load_agent(const StatePtrs &S, int n, int i, P &p) {
-    const jreal *d = S.pos + ((long long)n * 2 + i) * 8;
+    const jreal *d = S.pos + ((long long)n * 2 + i) * 10;
     p.x = d[0]; p.y = d[1]; p.z = d[2];
     p.vx = d[3]; p.vy = d[4]; p.vz = d[5];
     p.yaw = d[6]; p.pitch = d[7];
+    p.aim_y = d[8]; p.aim_p = d[9];
     const int *q = S.ints + ((long long)n * 2 + i) * 10;
     p.hurt = q[0]; p.jt = q[1]; p.ccd = q[2]; p.hits = q[3];
     p.og = q[4]; p.spr = q[5]; p.col = q[6]; p.h_delay = q[7];
     p.combo = q[8]; p.last_hit = q[9];
-    const float *h = S.human + ((long long)n * 2 + i) * 2;
-    p.h_cps = h[0]; p.h_rot = h[1];
+    const float *h = S.human + ((long long)n * 2 + i) * 3;
+    p.h_cps = h[0]; p.h_rot = h[1]; p.h_smooth = h[2];
 }
 
 JD void store_agent(const StatePtrs &S, int n, int i, const P &p) {
-    jreal *d = S.pos + ((long long)n * 2 + i) * 8;
+    jreal *d = S.pos + ((long long)n * 2 + i) * 10;
     d[0] = p.x; d[1] = p.y; d[2] = p.z;
     d[3] = p.vx; d[4] = p.vy; d[5] = p.vz;
     d[6] = p.yaw; d[7] = p.pitch;
+    d[8] = p.aim_y; d[9] = p.aim_p;
     int *q = S.ints + ((long long)n * 2 + i) * 10;
     q[0] = p.hurt; q[1] = p.jt; q[2] = p.ccd; q[3] = p.hits;
     q[4] = p.og; q[5] = p.spr; q[6] = p.col; q[7] = p.h_delay;
     q[8] = p.combo; q[9] = p.last_hit;
-    float *h = S.human + ((long long)n * 2 + i) * 2;
-    h[0] = p.h_cps; h[1] = p.h_rot;
+    float *h = S.human + ((long long)n * 2 + i) * 3;
+    h[0] = p.h_cps; h[1] = p.h_rot; h[2] = p.h_smooth;
 }
 
 JD void reset_match(const StatePtrs &S, int n, const SimParams &pr, P *agents) {
@@ -442,6 +446,7 @@ JD void reset_match(const StatePtrs &S, int n, const SimParams &pr, P *agents) {
         p.yaw = i == 0 ? R0 : (jreal)180.0;
         p.pitch = R0;
         p.vx = p.vy = p.vz = R0;
+        p.aim_y = p.aim_p = R0;
         p.hurt = p.jt = p.ccd = p.hits = 0;
         p.og = 1; p.spr = 0; p.col = 0;
         p.combo = 0; p.last_hit = 0;
@@ -454,10 +459,13 @@ JD void reset_match(const StatePtrs &S, int n, const SimParams &pr, P *agents) {
             p.h_rot = pr.rot_min + (float)rng_next(rs) * (pr.rot_max - pr.rot_min);
             p.h_delay = (int)(pr.delay_min
                         + rng_next(rs) * ((double)pr.delay_max - (double)pr.delay_min) + 0.5);
+            p.h_smooth = pr.smooth_min
+                         + (float)rng_next(rs) * (pr.smooth_max - pr.smooth_min);
         } else {
             p.h_cps = (pr.cps_min + pr.cps_max) * 0.5f;
             p.h_rot = (pr.rot_min + pr.rot_max) * 0.5f;
             p.h_delay = (int)(((double)pr.delay_min + (double)pr.delay_max) * 0.5 + 0.5);
+            p.h_smooth = (pr.smooth_min + pr.smooth_max) * 0.5f;
         }
         if (p.h_delay > MAX_DELAY - 1) p.h_delay = MAX_DELAY - 1;
         agents[i] = p;
@@ -528,10 +536,14 @@ JD void tick_one(const StatePtrs &S, const SimParams &pr, const float *actions,
         if (pl[i].hurt > 0) pl[i].hurt -= 1;
         if (pl[i].ccd > 0) pl[i].ccd -= 1;
     }
-    // 2. rotations
+    // 2. rotations + modèle moteur de visée (EMA — inertie ; transparent
+    //    quand h_smooth = 0 : response 1 -> état = commande)
     for (int i = 0; i < 2; ++i) {
-        pl[i].yaw += dyaw[i];
-        pl[i].pitch = clampr(pl[i].pitch + dpitch[i], (jreal)-90.0, (jreal)90.0);
+        jreal r = R1 - (jreal)pl[i].h_smooth;
+        pl[i].aim_y += (dyaw[i] - pl[i].aim_y) * r;
+        pl[i].aim_p += (dpitch[i] - pl[i].aim_p) * r;
+        pl[i].yaw += pl[i].aim_y;
+        pl[i].pitch = clampr(pl[i].pitch + pl[i].aim_p, (jreal)-90.0, (jreal)90.0);
     }
     // 3. sprint
     for (int i = 0; i < 2; ++i)
@@ -590,9 +602,7 @@ JD void tick_one(const StatePtrs &S, const SimParams &pr, const float *actions,
     if (w0 && w1) win = -1;      // double atteinte le même tick : égalité
     else if (w0) win = 0;
     else if (w1) win = 1;
-    else if (tick >= (int)pr.max_ticks) {
-        win = pl[0].hits > pl[1].hits ? 0 : (pl[1].hits > pl[0].hits ? 1 : -1);
-    }
+    else if (tick >= (int)pr.max_ticks) win = -1;  // timeout = égalité (anti-stall)
 
     bool is_done = win != -2;
     if (is_done && win >= 0) {

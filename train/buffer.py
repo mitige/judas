@@ -31,6 +31,7 @@ class RolloutBuffer:
         self.ret = torch.zeros(T, B, device=d)
         self.t = 0
         self._padded = None   # cache [H-1+T, B, D] pour windows()
+        self._gae_done = False
 
     def set_prefix(self, hist_now: torch.Tensor) -> None:
         """hist_now [B, H, D] : l'historique courant AVANT le 1er step."""
@@ -54,6 +55,12 @@ class RolloutBuffer:
     # ------------------------------------------------------------------- GAE
     @torch.no_grad()
     def compute_gae(self, last_value: torch.Tensor, gamma: float, lam: float) -> None:
+        # idempotent par rollout : en mode population, chaque membre appelle
+        # update() sur le même buffer — gamma/lam sont partagés (le PBT
+        # n'explore PAS gamma/lam, le cache serait invalide sinon)
+        if self._gae_done:
+            return
+        self._gae_done = True
         adv = torch.zeros(self.B, device=self.device)
         next_value = last_value
         for t in reversed(range(self.T)):
@@ -88,3 +95,4 @@ class RolloutBuffer:
     def reset(self) -> None:
         self.t = 0
         self._padded = None
+        self._gae_done = False

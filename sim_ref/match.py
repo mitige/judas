@@ -8,7 +8,8 @@ Ordre d'un tick Judas (les deux agents sont résolus symétriquement) :
      entre les deux — comme le serveur vanilla qui traite les paquets dans
      l'ordre d'arrivée), avant le tick de mouvement
   5. tick de mouvement des deux agents (saut + moveEntityWithHeading)
-  6. règles boxing : victoire à target_hits (double atteinte = égalité), timeout
+  6. règles boxing : victoire à target_hits (double atteinte = égalité),
+     timeout = égalité (anti-stall : fuir avec le score ne gagne jamais)
 
 Note de fidélité : vanilla traite les paquets des deux clients dans un ordre
 réseau arbitraire ; Judas fixe l'ordre agent 0 puis agent 1 (déterminisme).
@@ -92,13 +93,18 @@ class BoxingMatch:
             if p.click_cooldown > 0:
                 p.click_cooldown -= 1
 
-        # 2. rotations clampées
+        # 2. rotations clampées + modèle moteur de visée (EMA — inertie ;
+        #    transparent quand aim_smooth = 0 : response 1 -> état = commande)
         for i, p in enumerate(self.players):
             h = cfg.humanization[i]
             m = h.max_rot_speed
-            p.yaw += _clamp(applied[i].dyaw, -m, m)
-            p.pitch += _clamp(applied[i].dpitch, -m, m)
-            p.pitch = _clamp(p.pitch, -90.0, 90.0)
+            cmd_yaw = _clamp(applied[i].dyaw, -m, m)
+            cmd_pitch = _clamp(applied[i].dpitch, -m, m)
+            r = 1.0 - h.aim_smooth
+            p.aim_dyaw += (cmd_yaw - p.aim_dyaw) * r
+            p.aim_dpitch += (cmd_pitch - p.aim_dpitch) * r
+            p.yaw += p.aim_dyaw
+            p.pitch = _clamp(p.pitch + p.aim_dpitch, -90.0, 90.0)
 
         # 3. sprint (style toggle-sprint : touche + avancer, coupé par mur)
         for i, p in enumerate(self.players):
@@ -140,7 +146,9 @@ class BoxingMatch:
         elif w1:
             self.winner = 1
         elif self.tick_count >= cfg.max_ticks:
-            self.winner = _leader(self.players)  # -1 si égalité
+            # timeout = ÉGALITÉ (anti-stall) : mener au score puis fuir ne
+            # gagne jamais — la seule victoire est d'atteindre target_hits
+            self.winner = -1
 
     @property
     def done(self) -> bool:
@@ -149,11 +157,3 @@ class BoxingMatch:
 
 def _clamp(v: float, lo: float, hi: float) -> float:
     return lo if v < lo else hi if v > hi else v
-
-
-def _leader(players: list) -> int:
-    if players[0].hits > players[1].hits:
-        return 0
-    if players[1].hits > players[0].hits:
-        return 1
-    return -1

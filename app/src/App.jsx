@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, connectEvents } from "./api.js";
+import Logo from "./components/Logo.jsx";
 import Starfield from "./components/Starfield.jsx";
 import { usePersistentState } from "./persistence.mjs";
 import Dashboard from "./pages/Dashboard.jsx";
@@ -45,7 +46,7 @@ export default function App() {
       <div className="shell">
         <aside className="rail">
           <div className="brand">
-            <span className="orbit" />
+            <Logo />
             <h1>Judas</h1>
           </div>
           <nav>
@@ -53,22 +54,18 @@ export default function App() {
               <button key={p.id}
                       className={"navlink" + (activePage === p.id ? " active" : "")}
                       onClick={() => setPage(p.id)}>
-                <span className="dot" />
                 {p.label}
               </button>
             ))}
           </nav>
           <div className="foot">
-            <div className="statusline">
-              <span className={"beacon" + (connected ? " on" : " warn")} />
+            <div className={"statusline" + (connected ? " ok" : " warn")}>
               {connected ? "daemon online" : "daemon offline"}
             </div>
-            <div className="statusline">
-              <span className={"beacon" + (status?.gpu?.available ? " on" : "")} />
+            <div className={"statusline" + (status?.gpu?.available ? " ok" : "")}>
               {status?.gpu?.available ? status.gpu.name : "no gpu"}
             </div>
-            <div className="statusline">
-              <span className={"beacon" + (status?.training?.running ? " on" : "")} />
+            <div className={"statusline" + (status?.training?.running ? " ok" : "")}>
               {status?.training?.running ? "training" : "idle"}
             </div>
           </div>

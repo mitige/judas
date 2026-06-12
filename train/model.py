@@ -31,6 +31,16 @@ def _categorical_entropy_from_logits(logits: torch.Tensor) -> torch.Tensor:
     return -(logp.exp() * logp).sum(-1)
 
 
+def _gumbel_sample(logits: torch.Tensor) -> torch.Tensor:
+    """Échantillonnage catégoriel par gumbel-max — équivalent exact de
+    Categorical(logits).sample(), mais en ops tenseur pures : capturable par
+    CUDA graph et sans surcoût d'objets distribution. Le bruit est tiré en
+    float32 (un clamp 1e-9 sous-déborderait en fp16 sous autocast)."""
+    u = torch.rand(logits.shape, device=logits.device,
+                   dtype=torch.float32).clamp_(1e-9, 1.0)
+    return (logits.float() - torch.log(-torch.log(u))).argmax(-1)
+
+
 def _bernoulli_entropy_from_logits(logits: torch.Tensor) -> torch.Tensor:
     logits = logits.float()
     return (F.softplus(logits) - logits * torch.sigmoid(logits)).sum(-1)
@@ -123,9 +133,11 @@ class JudasPolicy(nn.Module):
             bins = (bin_l > 0).float()
         else:
             pre = mean + torch.randn_like(mean) * log_std.exp()
-            fwd = torch.distributions.Categorical(logits=fwd_l).sample()
-            strafe = torch.distributions.Categorical(logits=str_l).sample()
-            bins = torch.bernoulli(torch.sigmoid(bin_l))
+            fwd = _gumbel_sample(fwd_l)
+            strafe = _gumbel_sample(str_l)
+            bins = (torch.rand(bin_l.shape, device=bin_l.device,
+                               dtype=torch.float32)
+                    < torch.sigmoid(bin_l.float())).to(bin_l.dtype)
         raw = {"pre": pre, "fwd": fwd, "strafe": strafe, "bins": bins}
         logp = self.log_prob(mean, log_std, fwd_l, str_l, bin_l, raw)
         return {**raw, "logp": logp, "value": value}

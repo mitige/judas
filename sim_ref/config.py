@@ -10,10 +10,13 @@ class HumanizationConfig:
     max_cps         : clics par seconde max (le clic est ignoré pendant le cooldown)
     max_rot_speed   : vitesse de rotation max en degrés / tick (yaw et pitch)
     action_delay    : latence simulée en ticks entre décision et application
+    aim_smooth      : inertie de visée [0, 1) — EMA de la commande de rotation
+                      (0 = visée instantanée ; ~0.6 = flick humain à 20 TPS)
     """
     max_cps: float = 12.0
     max_rot_speed: float = 40.0
     action_delay: int = 0
+    aim_smooth: float = 0.0
 
     @property
     def click_cooldown_ticks(self) -> int:

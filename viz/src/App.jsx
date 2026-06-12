@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, connectArena } from "./api.js";
 import Arena3D from "./components/Arena3D.jsx";
+import Logo from "./components/Logo.jsx";
 import { usePersistentState } from "./persistence.mjs";
 import Starfield from "./components/Starfield.jsx";
 
@@ -13,7 +14,7 @@ export default function App() {
   const [sel, setSel] = usePersistentState("judas:viz:fighters", { a: "", b: "" });
   const [params, setParams] = usePersistentState("judas:viz:params", {
     cps: 12, rot: 40, arena: 18, target: 100, sample: true,
-    kb_h: 1.0, kb_v: 1.0, kb_idle: 1.0,
+    kb_h: 1.0, kb_v: 1.0, kb_idle: 1.0, aim_smooth: 0.0,
   });
   const [speed, setSpeed] = usePersistentState("judas:viz:speed", 1);
   const [status, setStatus] = useState(null);
@@ -62,6 +63,7 @@ export default function App() {
         arena_size: +params.arena, target_hits: +params.target,
         sample: params.sample,
         kb_h: +params.kb_h, kb_v: +params.kb_v, kb_idle: +params.kb_idle,
+        aim_smooth: +params.aim_smooth,
       });
       setStatus(st);
     } catch (e) { setErr(String(e.message || e)); }
@@ -100,8 +102,8 @@ export default function App() {
           </div>
 
           <div className="hud-foot">
-            <span className={connected ? "on" : ""}>
-              {connected ? "● connected" : "○ daemon offline"}
+            <span className={connected ? "on" : "warn"}>
+              {connected ? "connected" : "daemon offline"}
             </span>
             <span>tick {hud?.tick ?? "—"}</span>
             <span>{hud?.step_ms != null ? `${hud.step_ms} ms/step` : ""}</span>
@@ -123,7 +125,7 @@ export default function App() {
         {/* ------------------------------------------------- rail droit */}
         <aside className="vrail">
           <div className="vbrand">
-            <span className="orbit" />
+            <Logo size={20} />
             <h1>Judas</h1>
             <span className="sub">arena</span>
           </div>
@@ -160,6 +162,8 @@ export default function App() {
                      onChange={(e) => setParams({ ...params, kb_v: e.target.value })} />
               <Field label="kb idle" value={params.kb_idle}
                      onChange={(e) => setParams({ ...params, kb_idle: e.target.value })} />
+              <Field label="aim smooth" value={params.aim_smooth}
+                     onChange={(e) => setParams({ ...params, aim_smooth: e.target.value })} />
             </div>
             <hr className="sep" />
             <label className="toggle">

@@ -63,6 +63,7 @@ class JudasSimRef:
             max_rot_speed=_mid(self.cfg.rot_speed_min, self.cfg.rot_speed_max),
             # int(x + 0.5) et non round() : même arrondi que le kernel
             action_delay=int(_mid(self.cfg.delay_min, self.cfg.delay_max) + 0.5),
+            aim_smooth=_mid(self.cfg.aim_smooth_min, self.cfg.aim_smooth_max),
         )
         self._matches: list[BoxingMatch] = []
         self._last_actions = np.zeros((n_envs, 2, ACTION_DIM), dtype=np.float32)

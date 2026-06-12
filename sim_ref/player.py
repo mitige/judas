@@ -25,6 +25,10 @@ class PlayerState:
     # Judas
     click_cooldown: int = 0          # ticks restants avant prochain clic autorisé
     hits: int = 0                    # hits infligés (score boxing)
+    # Modèle moteur de visée (humanisation) : EMA de la commande de rotation.
+    # Transparent quand aim_smooth = 0 (response 1 -> état = commande).
+    aim_dyaw: float = 0.0
+    aim_dpitch: float = 0.0
 
     def copy(self) -> "PlayerState":
         return PlayerState(**self.__dict__)

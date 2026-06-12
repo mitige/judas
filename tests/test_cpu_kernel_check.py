@@ -91,12 +91,13 @@ def test_kernel_logic_matches_sim_ref(binary, tmp_path):
 
 
 def test_kernel_action_delay_matches_sim_ref(binary, tmp_path):
-    """La file circulaire de latence du kernel (h_delay > 0) reproduit la
-    deque de la référence — y compris le démarrage (actions nulles les d
-    premiers ticks) et l'interaction avec le combat."""
+    """La file circulaire de latence du kernel (h_delay > 0) et le modèle
+    moteur de visée (aim_smooth) reproduisent la référence — y compris le
+    démarrage (actions nulles les d premiers ticks) et le combat."""
     cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=15,
                     max_ticks=300, delay_min=2, delay_max=2,
-                    reward_combo=0.25, combo_window=60, combo_cap=5)
+                    reward_combo=0.25, combo_window=60, combo_cap=5,
+                    aim_smooth_min=0.5, aim_smooth_max=0.75)
 
     rng = np.random.default_rng(42)
     acts = np.stack([random_actions(rng, N_ENVS) for _ in range(N_TICKS)])

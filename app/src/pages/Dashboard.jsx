@@ -83,6 +83,12 @@ export default function Dashboard({ status, metrics }) {
           <KV k="spawn gap" v={fmt(last(metrics, "spawn_gap"), 1)} />
           <KV k="sprint hits" v={pct(last(metrics, "sprint_hits"))} hl />
           <KV k="combo hits" v={pct(last(metrics, "combo_hits"))} hl />
+          <KV k="engage" v={pct(last(metrics, "engage_rate"))} hl />
+          {last(metrics, "pbt_elo") && (
+            <KV k="population" v={last(metrics, "pbt_elo")
+              .map((e, i) => (i === last(metrics, "pbt_best") ? `★${Math.round(e)}` : Math.round(e)))
+              .join(" · ")} hl />
+          )}
         </div>
         <div className="panel">
           <div className="label">live</div>

@@ -45,8 +45,16 @@ def export(ckpt_path: str, out_path: str, device: str = "cpu") -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     traced.save(str(out))
 
+    # le contrat d'inférence (serve/live.py) : histoire, obs, et l'humanisation
+    # MEDIANE du run — l'inférence doit reproduire le modèle moteur du sim
+    sim = dict(ckpt.get("cfg", {}).get("sim", {}))
     meta = {"history": pol_cfg.history, "obs_dim": pol_cfg.obs_dim,
-            "iter": ckpt.get("iter"), "source": str(ckpt_path)}
+            "iter": ckpt.get("iter"), "source": str(ckpt_path),
+            "max_ticks": int(_sim_value(sim, "max_ticks", 6000)),
+            "target_hits": int(_sim_value(sim, "target_hits", 100)),
+            "max_cps": _mid(sim, "cps_min", "cps_max", 12.0),
+            "max_rot_speed": _mid(sim, "rot_speed_min", "rot_speed_max", 40.0),
+            "aim_smooth": _mid(sim, "aim_smooth_min", "aim_smooth_max", 0.0)}
     out.with_suffix(".json").write_text(json.dumps(meta, indent=2))
     return out
 
@@ -109,6 +117,7 @@ def export_orchid(ckpt_path: str, out_path: str, device: str = "cpu") -> Path:
         "max_cps": max_cps,
         "max_rot_speed": max_rot_speed,
         "action_delay": int(action_delay),
+        "aim_smooth": _mid(sim, "aim_smooth_min", "aim_smooth_max", 0.0),
         "floor_y": float(_sim_value(sim, "floor_y", 0.0)),
     }
     out.with_suffix(".json").write_text(json.dumps(meta, indent=2))

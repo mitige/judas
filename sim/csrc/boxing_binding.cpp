@@ -12,7 +12,7 @@ void judas_tick_cuda(StatePtrs S, SimParams pr, const float *actions,
                      int *winner, int n_envs);
 
 static SimParams params_from_vec(const std::vector<double> &v) {
-    TORCH_CHECK(v.size() == 24, "SimParams: 24 valeurs attendues");
+    TORCH_CHECK(v.size() == 26, "SimParams: 26 valeurs attendues");
     SimParams p;
     p.arena_x = (float)v[0]; p.arena_z = (float)v[1];
     p.target_hits = (float)v[2]; p.max_ticks = (float)v[3]; p.amp = (float)v[4];
@@ -30,6 +30,8 @@ static SimParams params_from_vec(const std::vector<double> &v) {
     p.r_combo = (float)v[21];
     p.combo_window = (float)v[22];
     p.combo_cap = (float)v[23];
+    p.smooth_min = (float)v[24];
+    p.smooth_max = (float)v[25];
     return p;
 }
 

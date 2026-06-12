@@ -38,11 +38,14 @@ class LiveSession:
         # entraîné aux défauts si le .json d'export manque)
         self.history = 8
         self.max_ticks = SimConfig().max_ticks
+        self.aim_smooth = 0.0      # inertie de visée (du meta d'export)
         self.hist = None
         self.last_action = [0.0] * 7
         self.click_cooldown = 0
         self.tick = 0
         self._last_hits: tuple | None = None
+        self._aim_dyaw = 0.0       # état du modèle moteur (miroir du sim)
+        self._aim_dpitch = 0.0
         self.last_latency_ms = 0.0
 
     # ------------------------------------------------------------------ model
@@ -55,6 +58,8 @@ class LiveSession:
         self.history = int(meta.get("history", 8))
         # contrat d'obs identique à l'entraînement : o[34] dépend de max_ticks
         self.max_ticks = int(meta.get("max_ticks", SimConfig().max_ticks))
+        # modèle moteur de visée : même inertie qu'à l'entraînement
+        self.aim_smooth = float(meta.get("aim_smooth", 0.0))
         self.model = torch.jit.load(str(p), map_location=self.device).eval()
         self.model_path = str(p)
         self.reset()
@@ -70,6 +75,8 @@ class LiveSession:
         self.click_cooldown = 0
         self.tick = 0
         self._last_hits = None
+        self._aim_dyaw = 0.0
+        self._aim_dpitch = 0.0
 
     # ------------------------------------------------------------------ state
     def on_state(self, msg: dict) -> dict | None:
@@ -105,9 +112,15 @@ class LiveSession:
             a = self.model(self.hist)[0].tolist()
         self.last_action = list(a)
 
-        # humanisation : rotations en degrés + limite CPS
-        a[0] = max(-1.0, min(1.0, a[0])) * pr.max_rot_speed
-        a[1] = max(-1.0, min(1.0, a[1])) * pr.max_rot_speed
+        # humanisation : rotations en degrés + modèle moteur (EMA, miroir
+        # exact du sim — transparent si aim_smooth = 0) + limite CPS
+        cmd_yaw = max(-1.0, min(1.0, a[0])) * pr.max_rot_speed
+        cmd_pitch = max(-1.0, min(1.0, a[1])) * pr.max_rot_speed
+        r = 1.0 - self.aim_smooth
+        self._aim_dyaw += (cmd_yaw - self._aim_dyaw) * r
+        self._aim_dpitch += (cmd_pitch - self._aim_dpitch) * r
+        a[0] = self._aim_dyaw
+        a[1] = self._aim_dpitch
         if self.click_cooldown > 0:
             self.click_cooldown -= 1
         if a[6] > 0.5:
@@ -126,6 +139,7 @@ class LiveSession:
             "enabled": self.params.enabled,
             "max_cps": self.params.max_cps,
             "max_rot_speed": self.params.max_rot_speed,
+            "aim_smooth": self.aim_smooth,
             "arena": self.params.arena.__dict__,
             "tick": self.tick,
             "latency_ms": round(self.last_latency_ms, 3),

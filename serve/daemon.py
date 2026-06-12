@@ -176,6 +176,7 @@ async def arena_load(body: dict):
         kb_h=float(body.get("kb_h", 1.0)),
         kb_v=float(body.get("kb_v", 1.0)),
         kb_idle=float(body.get("kb_idle", 1.0)),
+        aim_smooth=float(body.get("aim_smooth", 0.0)),
     ))
 
 

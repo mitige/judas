@@ -1,6 +1,7 @@
 """Tests de fumée de l'entraînement (CPU, configurations minuscules)."""
 
 import json
+import random
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +35,10 @@ TINY = {
 }
 
 
+PBT_TINY = {**TINY, "n_envs": 8,
+            "pbt": {"population": 2, "interval": 1, "cross_frac": 0.25}}
+
+
 @pytest.fixture()
 def tiny_trainer(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -52,7 +57,8 @@ def test_policy_forward_shapes():
 
 
 def test_boxing_short_run_profile_defaults():
-    """Profil court RTX 3060 : ~315M steps, modèle 96x8, matchs courts."""
+    """Profil RTX 3060 : 32k envs, trunk MLP d128 (~3.5M sps), PBT-4,
+    update grand-batch (1 epoch, frac 0.7, minibatch 65536)."""
     from train.run import DEFAULT_CFG
 
     boxing = json.loads(Path("train/configs/boxing.json").read_text())
@@ -66,14 +72,22 @@ def test_boxing_short_run_profile_defaults():
         assert cfg["league_bot_frac"] == 0.25
         assert cfg["sim"]["target_hits"] == 50
         assert cfg["policy"]["history"] == 8
-        assert cfg["policy"]["d_model"] == 96
         assert cfg["policy"]["n_layers"] == 2
-        assert cfg["policy"]["n_heads"] == 4
 
+    # profil de production (boxing.json) : MLP large + échelle 3060
+    assert boxing["n_envs"] == 32768
+    assert boxing["policy"]["d_model"] == 128
+    assert boxing["policy"]["attention"] is False
+    assert boxing["ppo"]["epochs"] == 1
+    assert boxing["ppo"]["minibatch_size"] == 65536
+    assert boxing["pbt"]["population"] == 4
+
+    # défauts du code inchangés (compat checkpoints transformer)
     assert policy.history == 8
     assert policy.d_model == 96
     assert policy.n_layers == 2
     assert policy.n_heads == 4
+    assert policy.attention is True
 
 
 def test_ppo_value_clip_disabled_by_default():
@@ -246,8 +260,176 @@ def test_chase_bot_actions():
 
 def test_metrics_have_automation_fields(tiny_trainer):
     m = tiny_trainer.train_iter()
-    for k in ("hit_rate", "shaping", "warn_entropy", "total_steps"):
+    for k in ("hit_rate", "shaping", "warn_entropy", "total_steps",
+              "engage_rate"):
         assert k in m
+    assert 0.0 <= m["engage_rate"] <= 1.0
+
+
+def test_shaping_floor_keeps_pressure(tiny_trainer):
+    """shaping_floor_frac > 0 : le shaping distance ne s'éteint plus en fin
+    de rampe (pression de rapprochement permanente, anti-passivité)."""
+    t = tiny_trainer
+    t._ramp_on = True
+    t._shaping_base = 0.002
+    t._ramp_pos = 1.0
+    t.cfg["shaping_floor_frac"] = 0.0
+    assert t._auto_shaping() == 0.0          # comportement historique
+    t.cfg["shaping_floor_frac"] = 0.25
+    assert abs(t._auto_shaping() - 0.002 * 0.25) < 1e-12
+
+
+def test_resume_truncates_future_metrics(tiny_trainer, tmp_path):
+    """Un resume coupe les lignes de métriques d'itérations > checkpoint
+    (progrès perdu d'une session tuée) : pas de doublons dans les courbes."""
+    tiny_trainer.train_iter()
+    path = tiny_trainer.save()                  # checkpoint à iter 1
+    with open(tiny_trainer.run_dir / "metrics.jsonl", "a") as f:
+        f.write('{"iter": 2}\n{"iter": 3}\n')   # progrès non sauvegardé
+    t2 = Trainer(TINY, device="cpu")
+    t2.load(str(path))
+    lines = (t2.run_dir / "metrics.jsonl").read_text().strip().splitlines()
+    iters = [json.loads(ln)["iter"] for ln in lines]
+    assert max(iters) == 1
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA requis")
+def test_resume_old_checkpoint_into_fused_adam(tmp_path, monkeypatch):
+    """Un checkpoint sauvé par l'Adam non-fused (steps CPU) doit se charger
+    dans l'Adam fused (CUDA) sans déclencher l'assertion
+    « Expected grad_scale and found_inf to be None » au premier update."""
+    monkeypatch.chdir(tmp_path)
+    t1 = Trainer(TINY, device="cpu")
+    t1.train_iter()
+    path = t1.save()
+
+    t2 = Trainer({**TINY, "ppo": {**TINY["ppo"], "amp": True}}, device="cuda")
+    t2.load(str(path))
+    m = t2.train_iter()
+    assert np.isfinite(m["reward_mean"])
+
+
+# ----------------------------------------------------------------------- PBT
+def test_pbt_perturb_within_bounds():
+    from train.pbt import perturb_hypers
+    rng = random.Random(0)
+    base = {"lr": 3e-4, "ent_coef": 0.005, "clip": 0.2}
+    explore = {"lr": [6e-5, 6e-4], "ent_coef": [0.002, 0.02], "clip": [0.1, 0.3]}
+    for _ in range(50):
+        h = perturb_hypers(base, explore, 0.8, 1.25, rng)
+        for key, (lo, hi) in explore.items():
+            assert lo <= h[key] <= hi
+            # x0.8 ou x1.25 (borné) : jamais identique à la base ici
+            assert h[key] != base[key]
+
+
+def test_pbt_exploit_copies_top():
+    """Le membre du bas copie poids + hypers (perturbés) du membre du haut."""
+    from train.pbt import DEFAULT_PBT, Member, exploit_explore
+    from train.ppo import PPO, PPOConfig
+    dev = torch.device("cpu")
+    cfg_pol = PolicyConfig(history=4, d_model=32, n_heads=2, n_layers=1)
+    top_pol, low_pol = JudasPolicy(cfg_pol), JudasPolicy(cfg_pol)
+    top = Member(0, top_pol, PPO(top_pol, PPOConfig(amp=False), dev),
+                 {"lr": 3e-4, "ent_coef": 0.005, "clip": 0.2}, elo=1500.0)
+    low = Member(1, low_pol, PPO(low_pol, PPOConfig(amp=False), dev),
+                 {"lr": 1e-4, "ent_coef": 0.01, "clip": 0.25}, elo=900.0)
+    cfg = {**DEFAULT_PBT, "truncation": 0.5}
+
+    events = exploit_explore([top, low], cfg, random.Random(0))
+
+    assert events == [(1, 0)]
+    for k, v in low_pol.state_dict().items():
+        assert torch.equal(v, top_pol.state_dict()[k])
+    assert low.elo == top.elo
+    for key, (lo, hi) in cfg["explore"].items():
+        assert lo <= low.hypers[key] <= hi
+        assert low.hypers[key] != top.hypers[key]
+    # les hypers perturbés sont APPLIQUÉS dans l'optimiseur
+    assert low.ppo.opt.param_groups[0]["lr"] == low.hypers["lr"]
+
+
+def test_pbt_smoke_two_iters(tmp_path, monkeypatch):
+    """Population 2 : rollout multi-membres, ELO cross-play, exploit/explore
+    et métriques — deux itérations complètes sans erreur."""
+    monkeypatch.chdir(tmp_path)
+    t = Trainer(PBT_TINY, device="cpu")
+    assert len(t.members) == 2
+    assert t.members[0].policy is not t.members[1].policy
+    m1 = t.train_iter()
+    m2 = t.train_iter()
+    for m in (m1, m2):
+        assert np.isfinite(m["reward_mean"])
+        assert np.isfinite(m["approx_kl"])
+    assert len(m2["pbt_elo"]) == 2
+    assert m2["pbt_best"] in (0, 1)
+    assert len(m2["pbt_lr"]) == 2
+
+
+def test_pbt_seed_from_single_checkpoint(tmp_path, monkeypatch):
+    """Un checkpoint single-policy seed TOUTE la population (lignée
+    conservée) ; les hypers restent diversifiés par l'init."""
+    monkeypatch.chdir(tmp_path)
+    t1 = Trainer(TINY, device="cpu")
+    t1.train_iter()
+    path = t1.save()
+
+    t2 = Trainer(PBT_TINY, device="cpu")
+    t2.load(str(path))
+    ref = torch.load(path, map_location="cpu", weights_only=False)["policy"]
+    for mb in t2.members:
+        sd = mb.policy.state_dict()
+        for k in ref:
+            assert torch.equal(sd[k], ref[k]), f"membre {mb.idx}: {k} diverge"
+
+
+def test_pbt_checkpoint_roundtrip(tmp_path, monkeypatch):
+    """Sauvegarde/restauration complète de la population (poids par membre,
+    hypers, elo) + tête de checkpoint = meilleur membre (compat export)."""
+    monkeypatch.chdir(tmp_path)
+    t1 = Trainer(PBT_TINY, device="cpu")
+    t1.train_iter()
+    t1.members[0].elo = 1234.5
+    t1.members[1].hypers["lr"] = 1.1e-4
+    path = t1.save()
+
+    t2 = Trainer(PBT_TINY, device="cpu")
+    t2.load(str(path))
+    assert abs(t2.members[0].elo - 1234.5) < 1e-9
+    assert abs(t2.members[1].hypers["lr"] - 1.1e-4) < 1e-12
+    for m1, m2 in zip(t1.members, t2.members):
+        sd1, sd2 = m1.policy.state_dict(), m2.policy.state_dict()
+        for k in sd1:
+            assert torch.equal(sd1[k], sd2[k])
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA requis")
+def test_pbt_cuda_graphs_population(tmp_path, monkeypatch):
+    """Mode population sur GPU : capture des graphs par membre puis replay
+    sur plusieurs itérations (le 2e tour exerce le chemin replay + cat)."""
+    monkeypatch.chdir(tmp_path)
+    cfg = {**PBT_TINY, "n_envs": 16, "ppo": {**TINY["ppo"], "amp": True}}
+    t = Trainer(cfg, device="cuda")
+    m1 = t.train_iter()
+    m2 = t.train_iter()
+    assert np.isfinite(m1["reward_mean"])
+    assert np.isfinite(m2["reward_mean"])
+    assert len(m2["pbt_elo"]) == 2
+
+
+def test_metrics_rotation_on_fresh_start(tmp_path, monkeypatch):
+    """Un run frais archive le metrics.jsonl du run précédent du même nom
+    (les courbes de l'app ne doivent pas concaténer les runs)."""
+    monkeypatch.chdir(tmp_path)
+    t = Trainer(TINY, device="cpu")
+    (t.run_dir / "metrics.jsonl").write_text('{"iter": 1}\n')
+    t.rotate_metrics()
+    assert not (t.run_dir / "metrics.jsonl").exists()
+    assert (t.run_dir / "metrics-001.jsonl").read_text() == '{"iter": 1}\n'
+    # une 2e rotation n'écrase pas l'archive existante
+    (t.run_dir / "metrics.jsonl").write_text('{"iter": 2}\n')
+    t.rotate_metrics()
+    assert (t.run_dir / "metrics-002.jsonl").exists()
 
 
 def test_checkpoint_pruning(tmp_path, monkeypatch):

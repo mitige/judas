@@ -1,13 +1,14 @@
 {
   "name": "boxing",
   "total_iters": 300,
-  "n_envs": 4096,
+  "n_envs": 32768,
   "rollout_ticks": 128,
   "league_frac": 0.3,
   "league_bot_frac": 0.25,
   "pool_every": 25,
   "save_every": 25,
   "eval_every": 25,
+  "shaping_floor_frac": 0.25,
   "seed": 0,
   "sim": {
     "arena_size_x": 18.0,
@@ -21,9 +22,11 @@
     "rot_speed_max": 60.0,
     "delay_min": 0,
     "delay_max": 3,
+    "aim_smooth_min": 0.4,
+    "aim_smooth_max": 0.75,
     "spawn_jitter": 2.0,
     "reward_hit": 1.0,
-    "reward_hurt": -1.0,
+    "reward_hurt": -0.85,
     "reward_win": 10.0,
     "reward_dist": 0.002,
     "reward_combo": 0.25,
@@ -33,20 +36,26 @@
   },
   "policy": {
     "history": 8,
-    "d_model": 96,
-    "n_heads": 4,
-    "n_layers": 2
+    "d_model": 128,
+    "n_layers": 2,
+    "attention": false
   },
   "ppo": {
     "lr": 0.0003,
     "gamma": 0.995,
     "lam": 0.95,
     "clip": 0.2,
-    "epochs": 3,
-    "minibatch_size": 16384,
+    "epochs": 1,
+    "minibatch_size": 65536,
+    "sample_frac": 0.7,
     "ent_coef": 0.005,
     "vf_coef": 0.5,
     "max_grad_norm": 0.5,
     "amp": true
+  },
+  "pbt": {
+    "population": 4,
+    "interval": 25,
+    "cross_frac": 0.25
   }
 }

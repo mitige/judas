@@ -36,7 +36,9 @@ class PPO:
         self.policy = policy
         self.cfg = cfg
         self.device = device
-        self.opt = torch.optim.Adam(policy.parameters(), lr=cfg.lr, eps=1e-5)
+        # fused Adam : une seule passe kernel sur tous les params (CUDA)
+        self.opt = torch.optim.Adam(policy.parameters(), lr=cfg.lr, eps=1e-5,
+                                    fused=device.type == "cuda")
         self.use_amp = cfg.amp and device.type == "cuda"
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
 

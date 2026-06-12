@@ -49,12 +49,14 @@ def test_cuda_matches_reference():
 
 def test_cuda_matches_reference_full_options():
     """Équivalence GPU avec TOUTES les options actives : reward_combo (exigé
-    par la spec combo), kb custom, shaping distance et latence d'action."""
+    par la spec combo), kb custom, shaping distance, latence d'action et
+    modèle moteur de visée (0.5/0.75 : exacts en float32, médiane 0.625)."""
     cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=15,
                     max_ticks=300, reward_combo=0.25, combo_window=60,
                     combo_cap=5, reward_dist=0.002,
                     kb_h_mult=0.9055, kb_v_mult=0.8835, kb_idle_mult=0.6,
-                    delay_min=2, delay_max=2)
+                    delay_min=2, delay_max=2,
+                    aim_smooth_min=0.5, aim_smooth_max=0.75)
     _run_equivalence(cfg, force_attack=True)
 
 

@@ -19,6 +19,8 @@ class SimConfig:
     rot_speed_max: float = 40.0
     delay_min: int = 0                  # ticks de latence action
     delay_max: int = 0
+    aim_smooth_min: float = 0.0         # inertie de visée [0, 1) — EMA de la
+    aim_smooth_max: float = 0.0         # commande de rotation (0 = instantané)
 
     # Spawn
     spawn_jitter: float = 0.0           # jitter horizontal max (blocs)
@@ -53,6 +55,10 @@ class SimConfig:
         if self.cps_min <= 0 or self.cps_max < self.cps_min:
             raise ValueError(
                 f"cps_min/cps_max invalides : ({self.cps_min}, {self.cps_max})")
+        if not (0.0 <= self.aim_smooth_min <= self.aim_smooth_max < 1.0):
+            raise ValueError(
+                f"aim_smooth_min/max doivent vérifier 0 <= min <= max < 1, "
+                f"reçu ({self.aim_smooth_min}, {self.aim_smooth_max})")
         # Le kernel caste combo_window/combo_cap en int : exiger des entiers
         # pour qu'aucune divergence kernel <-> ref ne soit possible.
         if self.combo_window != int(self.combo_window) \
@@ -76,6 +82,7 @@ class SimConfig:
             self.spawn_gap,
             self.kb_h_mult, self.kb_v_mult, self.kb_idle_mult,
             self.reward_combo, float(self.combo_window), float(self.combo_cap),
+            self.aim_smooth_min, self.aim_smooth_max,
         ]
 
 

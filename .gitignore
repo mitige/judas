@@ -38,3 +38,6 @@ output/
 
 # Archives de sauvegarde manuelles à la racine
 /*.zip
+
+# Artefacts Playwright MCP (captures de verification)
+.playwright-mcp/

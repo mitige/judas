@@ -83,7 +83,7 @@ class ArenaSession:
              rot_speed: float = 40.0, arena_size: float = 18.0,
              target_hits: int = 100, sample: bool = True,
              kb_h: float = 1.0, kb_v: float = 1.0,
-             kb_idle: float = 1.0) -> dict:
+             kb_idle: float = 1.0, aim_smooth: float = 0.0) -> dict:
         self.agents = [_Agent(model_a, self.device), _Agent(model_b, self.device)]
         self.cfg = SimConfig(
             arena_size_x=arena_size, arena_size_z=arena_size,
@@ -91,6 +91,7 @@ class ArenaSession:
             cps_min=cps, cps_max=cps,
             rot_speed_min=rot_speed, rot_speed_max=rot_speed,
             kb_h_mult=kb_h, kb_v_mult=kb_v, kb_idle_mult=kb_idle,
+            aim_smooth_min=aim_smooth, aim_smooth_max=aim_smooth,
             randomize=False,
         )
         self.sample = sample

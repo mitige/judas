@@ -16,7 +16,7 @@
   "save_every": 1,
   "keep_ckpts": 96,
   "resume_as_seed": true,
-  "resume_same_run_as_seed": true,
+  "resume_same_run_as_seed": false,
   "fresh_optimizer_on_resume": true,
   "safety_stop_on_regression": true,
   "safety_restore_on_low_combo": false,

@@ -17,7 +17,7 @@ const D = {
   league_pad_bot_frac: 0.00,
   pool_every: 100, save_every: 1, keep_ckpts: 96,
   resume_as_seed: true,
-  resume_same_run_as_seed: true,
+  resume_same_run_as_seed: false,
   fresh_optimizer_on_resume: true,
   safety_stop_on_regression: true, safety_restore_on_low_combo: false,
   safety_under_combo_escape: 0.015,

@@ -1786,7 +1786,7 @@ def test_combo_god_recovery_kb092_combo12_profile_defaults():
 
     assert cfg["name"] == "combo_god_recovery_kb092_combo12"
     assert cfg["resume_as_seed"] is True
-    assert cfg["resume_same_run_as_seed"] is True
+    assert cfg["resume_same_run_as_seed"] is False
     assert cfg["fresh_optimizer_on_resume"] is True
     assert cfg["policy"]["history"] == 8
     assert cfg["policy"]["d_model"] == 96

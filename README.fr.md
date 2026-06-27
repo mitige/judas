@@ -35,6 +35,22 @@ Chaque coup ajoute un point, et la cible de hits configuree decide le match.
 Les timeouts sont des egalites, donc fuir avec une avance ne devient pas une
 strategie gagnante.
 
+## Captures De L'interface
+
+L'app Electron et le visualiseur d'arene 3D donnent acces aux metriques
+d'entrainement, au controle live des modeles et a la lecture des matchs simules
+dans un meme workflow local.
+
+| Tableau de bord | Entrainement |
+|---|---|
+| ![Tableau de bord Judas avec les metriques d'entrainement](assets/gui/dashboard.png) | ![Ecran de configuration d'entrainement Judas](assets/gui/training.png) |
+
+| Controle live | Visualiseur d'arene |
+|---|---|
+| ![Controle live Judas pour les modeles et l'humanisation](assets/gui/live.png) | ![Visualiseur d'arene 3D Judas](assets/gui/arena.png) |
+
+![Scoreboard et controles de match de l'arene Judas](assets/gui/arena-scoreboard.png)
+
 ## Structure Du Depot
 
 ```text

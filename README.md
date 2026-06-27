@@ -33,6 +33,21 @@ In Judas boxing, players have Speed II, a sword in slot 1, and no damage. A hit
 adds one point, and the configured hit target decides the match. Timeouts are
 treated as draws so running away with a lead does not become optimal.
 
+## GUI Screenshots
+
+The Electron control app and 3D arena viewer expose the training state, live
+model controls, and simulated match playback from one local workflow.
+
+| Dashboard | Training |
+|---|---|
+| ![Judas dashboard with training metrics](assets/gui/dashboard.png) | ![Judas training configuration screen](assets/gui/training.png) |
+
+| Live Control | Arena Viewer |
+|---|---|
+| ![Judas live model and humanization controls](assets/gui/live.png) | ![Judas 3D arena viewer](assets/gui/arena.png) |
+
+![Judas arena scoreboard and match controls](assets/gui/arena-scoreboard.png)
+
 ## Repository Layout
 
 ```text

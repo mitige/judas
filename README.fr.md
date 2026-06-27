@@ -51,6 +51,12 @@ dans un meme workflow local.
 
 ![Scoreboard et controles de match de l'arene Judas](assets/gui/arena-scoreboard.png)
 
+## Video De Demonstration
+
+<video src="assets/media/judas-demo.mp4" controls width="100%"></video>
+
+[Ouvrir la video directement](assets/media/judas-demo.mp4).
+
 ## Structure Du Depot
 
 ```text

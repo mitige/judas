@@ -48,6 +48,12 @@ model controls, and simulated match playback from one local workflow.
 
 ![Judas arena scoreboard and match controls](assets/gui/arena-scoreboard.png)
 
+## Demo Video
+
+<video src="assets/media/judas-demo.mp4" controls width="100%"></video>
+
+[Open the demo video directly](assets/media/judas-demo.mp4).
+
 ## Repository Layout
 
 ```text

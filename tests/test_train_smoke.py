@@ -1820,7 +1820,8 @@ def test_combo_god_recovery_kb092_combo12_profile_defaults():
     assert scripted_frac == pytest.approx(1.0)
     assert cfg["safety_back_frac"] <= 0.001
     assert cfg["safety_under_combo_escape"] <= 0.015
-    assert cfg["safety_under_combo_avoid_frac"] < leaderboard["safety_under_combo_avoid_frac"]
+    assert cfg["safety_under_combo_avoid_frac"] == pytest.approx(0.070)
+    assert cfg["safety_under_combo_avoid_frac"] < cfg["score_under_combo_avoid_target"]
     assert cfg["score_under_combo_avoid_target"] < leaderboard["score_under_combo_avoid_target"]
     assert cfg["score_under_combo_avoid_weight"] > leaderboard["score_under_combo_avoid_weight"]
     assert cfg["safety_min_under_combo_counter_hit_frac"] >= 0.115
@@ -2694,7 +2695,7 @@ def test_combo_god_entrypoints_use_attn96_profile_and_arena_defaults():
     assert "reward_chase_close_counter: 22.00" in app
     assert "reward_chase_counter: 38.00" in app
     assert "reward_spar_counter: 34.00" in app
-    assert "safety_under_combo_avoid_frac: 0.040" in app
+    assert "safety_under_combo_avoid_frac: 0.070" in app
     assert "safety_under_combo_avoid_min_combo12: 0.10" in app
     assert "score_under_combo_avoid_cap: 0.025" in app
     assert "safety_min_under_combo_hit_select_clean_frac: 0.30" in app

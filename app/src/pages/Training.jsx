@@ -32,7 +32,7 @@ const D = {
   safety_rollout_hit_wtap_slack: 0.30,
   safety_hit_wtap_blocks_promotion: true,
   safety_min_under_combo_counter_hit_frac: 0.115,
-  safety_under_combo_avoid_frac: 0.040,
+  safety_under_combo_avoid_frac: 0.070,
   safety_under_combo_avoid_min_combo12: 0.10,
   safety_under_combo_avoid_min_hit_rate: 90.0,
   score_under_combo_avoid_target: 0.10,

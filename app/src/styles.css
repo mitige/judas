@@ -15,6 +15,7 @@
   --ice: #a7c2ee;
   --ice-deep: #5e83d8;
   --aurora: #79d287;
+  --amber: #d9a662;
   --ember: #f07a68;
   --serif: "Instrument Serif", Georgia, serif;
   --sans: "Instrument Sans", "Segoe UI", sans-serif;
@@ -140,14 +141,26 @@ h2.title em { font-style: italic; color: var(--ice); }
 .stat-value {
   font-family: var(--mono); font-size: 30px; font-weight: 400;
   color: var(--ink); line-height: 1;
+  transition: color 0.4s ease;
 }
 .stat-value small { font-size: 13px; color: var(--ink-dim); margin-left: 6px; }
 .stat-trend { margin-top: 10px; }
 
+/* santé des métriques (seuils : docs/GUIDE.md) — sain reste calme,
+   à surveiller = ambre, malsain = braise */
+.stat-value.watch { color: var(--amber); }
+.stat-value.bad { color: var(--ember); }
+
 /* ---------------------------------------------------------------- charts */
-.spark path.line { stroke: var(--ice); fill: none; stroke-width: 1.5; }
+.spark path.line { stroke: var(--ice); fill: none; stroke-width: 1.5; transition: stroke 0.4s ease; }
 .spark path.fill { fill: url(#sparkfill); stroke: none; }
-.bigchart path.line { stroke: var(--ice); fill: none; stroke-width: 1.6; }
+.spark.watch path.line { stroke: var(--amber); }
+.spark.watch path.fill { opacity: 0.35; }
+.spark.bad path.line { stroke: var(--ember); }
+.spark.bad path.fill { opacity: 0.2; }
+.bigchart path.line { stroke: var(--ice); fill: none; stroke-width: 1.6; transition: stroke 0.4s ease; }
+.bigchart.watch path.line { stroke: var(--amber); }
+.bigchart.bad path.line { stroke: var(--ember); }
 .bigchart .axis { font-family: var(--mono); font-size: 9.5px; fill: var(--ink-faint); }
 .bigchart line.gridline { stroke: var(--hairline); }
 
@@ -177,13 +190,14 @@ h2.title em { font-style: italic; color: var(--ice); }
   font-family: var(--mono); font-size: 10px; text-transform: uppercase;
   letter-spacing: 0.2em; color: var(--ink-faint);
 }
-.field input[type="text"], .field input[type="number"], .field select {
+.field input[type="text"], .field input[type="number"], .field select, .field textarea {
   background: rgba(5, 7, 13, 0.7); color: var(--ink);
   border: 1px solid var(--hairline-strong); border-radius: 7px;
   padding: 9px 12px; font-family: var(--mono); font-size: 12.5px;
   outline: none; min-width: 0;
 }
-.field input:focus, .field select:focus { border-color: var(--ice-deep); }
+.field textarea { resize: vertical; min-height: 74px; }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--ice-deep); }
 
 /* slider */
 .slider { display: flex; flex-direction: column; gap: 8px; }
@@ -223,18 +237,23 @@ table.list tr:hover td { background: rgba(156, 200, 255, 0.03); }
 }
 .tag.ice { color: var(--ice); border-color: rgba(94, 139, 255, 0.4); }
 .tag.green { color: var(--aurora); border-color: rgba(126, 231, 135, 0.35); }
+.tag.bad { color: var(--ember); border-color: rgba(255, 123, 123, 0.35); }
 
 .empty {
   padding: 40px 0; text-align: center; color: var(--ink-faint);
   font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
 }
+.empty.compact { padding: 16px 0; text-align: left; }
 
 hr.sep { border: none; border-top: 1px solid var(--hairline); margin: 18px 0; }
 
 .kv { display: flex; justify-content: space-between; padding: 7px 0; font-size: 13px; }
 .kv .k { color: var(--ink-faint); font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.08em; }
-.kv .v { font-family: var(--mono); color: var(--ink-dim); }
+.kv .v { font-family: var(--mono); color: var(--ink-dim); transition: color 0.4s ease; }
 .kv .v.hl { color: var(--ice); }
+.kv .v.ok { color: var(--ice); }
+.kv .v.watch { color: var(--amber); }
+.kv .v.bad { color: var(--ember); }
 
 .toggle {
   display: flex; align-items: center; gap: 9px;

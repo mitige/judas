@@ -291,6 +291,14 @@ hr.sep { border: none; border-top: 1px solid var(--hairline); margin: 18px 0; }
   text-align: center; margin-top: 6px;
   max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.hud-score .combo-line {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-dim);
+  text-align: center;
+  margin-top: 4px;
+  white-space: nowrap;
+}
 
 .hud-foot {
   position: absolute; left: 16px; bottom: 14px;

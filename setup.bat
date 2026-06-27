@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo === Judas setup (CUDA 12.8/12.9, RTX 3060) ===
+echo === Judas setup (GPU NVIDIA, CUDA 12.8/12.9) ===
 
 set "PYTHON_CMD="
 where py >nul 2>nul

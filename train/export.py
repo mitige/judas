@@ -4,13 +4,21 @@
 """
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 
-from .model import JudasPolicy, PolicyConfig
+from .model import (
+    COMBO_ATTACK_REACH,
+    COMBO_REHIT_ATTACK_REACH,
+    COMBO_REHIT_CLICK_HURT,
+    COUNTER_HIT_REACH,
+    JudasPolicy,
+    PolicyConfig,
+)
 
 
 class InferenceWrapper(nn.Module):
@@ -22,15 +30,43 @@ class InferenceWrapper(nn.Module):
 
     def forward(self, hist: torch.Tensor) -> torch.Tensor:
         z = self.policy.trunk(hist)
-        mean = self.policy.mean_head(z)
-        fwd = self.policy.fwd_head(z).argmax(-1)
-        strafe = self.policy.strafe_head(z).argmax(-1)
-        bins = (self.policy.bin_head(z) > 0).float()
+        mean, _log_std, fwd_l, str_l, bin_l, _value = self.policy.heads(z)
+        mean = mean + self.policy.aim_residual(hist).to(dtype=mean.dtype)
+        fwd_l, str_l, bin_l = self.policy.mask_action_logits(hist, fwd_l, str_l, bin_l)
+        fwd = fwd_l.argmax(-1)
+        strafe = str_l.argmax(-1)
+        bins = (bin_l > 0).float()
+        if self.policy.cfg.direct_movement_lock:
+            bins = bins.clone()
+            bins[:, 0] = torch.zeros_like(bins[:, 0])
+            bins[:, 1] = torch.where(
+                fwd == 2,
+                torch.ones_like(bins[:, 1]),
+                torch.zeros_like(bins[:, 1]),
+            )
+            obs = hist[:, -1].float()
+            dist = obs[:, 45] * 8.0
+            combo_adv = obs[:, 22] > obs[:, 21] + 0.05
+            under_combo = obs[:, 21] > obs[:, 22] + 0.05
+            rehit_click_ready = obs[:, 22] <= COMBO_REHIT_CLICK_HURT
+            _under_combo_legal, under_combo_attack = self.policy.direct_counter_attack_windows(
+                obs, dist, under_combo & (dist <= COUNTER_HIT_REACH), rehit_click_ready)
+            in_combo_exchange = (
+                (combo_adv & rehit_click_ready & (fwd != 0)
+                 & (dist <= COMBO_REHIT_ATTACK_REACH))
+                | under_combo_attack
+            )
+            bins[:, 2] = torch.where(
+                in_combo_exchange,
+                torch.ones_like(bins[:, 2]),
+                bins[:, 2],
+            )
         out = torch.zeros(hist.shape[0], 7, dtype=torch.float32, device=hist.device)
         out[:, 0:2] = torch.tanh(mean)
         out[:, 2] = fwd.float() - 1.0
         out[:, 3] = strafe.float() - 1.0
         out[:, 4:7] = bins
+        out[:, 5] = torch.where(out[:, 2] <= 0.5, torch.zeros_like(out[:, 5]), out[:, 5])
         return out
 
 
@@ -48,10 +84,15 @@ def export(ckpt_path: str, out_path: str, device: str = "cpu") -> Path:
     # le contrat d'inférence (serve/live.py) : histoire, obs, et l'humanisation
     # MEDIANE du run — l'inférence doit reproduire le modèle moteur du sim
     sim = dict(ckpt.get("cfg", {}).get("sim", {}))
+    ckpt_file = Path(ckpt_path)
     meta = {"history": pol_cfg.history, "obs_dim": pol_cfg.obs_dim,
             "iter": ckpt.get("iter"), "source": str(ckpt_path),
+            "source_sha256": _file_sha256(ckpt_file),
+            "source_size": ckpt_file.stat().st_size,
             "max_ticks": int(_sim_value(sim, "max_ticks", 6000)),
             "target_hits": int(_sim_value(sim, "target_hits", 100)),
+            "arena_size_x": float(_sim_value(sim, "arena_size_x", 18.0)),
+            "arena_size_z": float(_sim_value(sim, "arena_size_z", 18.0)),
             "max_cps": _mid(sim, "cps_min", "cps_max", 12.0),
             "max_rot_speed": _mid(sim, "rot_speed_min", "rot_speed_max", 40.0),
             "aim_smooth": _mid(sim, "aim_smooth_min", "aim_smooth_max", 0.0)}
@@ -83,6 +124,14 @@ def _sim_value(raw: dict, key: str, default):
     return raw.get(key, default)
 
 
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def export_orchid(ckpt_path: str, out_path: str, device: str = "cpu") -> Path:
     """Export a Judas checkpoint for Orchid's native LibTorch loader."""
     ckpt, pol_cfg, policy = _load_policy(ckpt_path)
@@ -97,6 +146,7 @@ def export_orchid(ckpt_path: str, out_path: str, device: str = "cpu") -> Path:
     traced.save(str(out))
 
     sim = dict(ckpt.get("cfg", {}).get("sim", {}))
+    ckpt_file = Path(ckpt_path)
     max_rot_speed = _mid(sim, "rot_speed_min", "rot_speed_max", 40.0)
     max_cps = _mid(sim, "cps_min", "cps_max", 12.0)
     # int(x + 0.5) et non round() : même arrondi que le kernel et ref_backend
@@ -110,6 +160,8 @@ def export_orchid(ckpt_path: str, out_path: str, device: str = "cpu") -> Path:
         "iter": ckpt.get("iter"),
         "total_steps": ckpt.get("total_steps", 0),
         "source_checkpoint": str(ckpt_path),
+        "source_sha256": _file_sha256(ckpt_file),
+        "source_size": ckpt_file.stat().st_size,
         "arena_size_x": float(_sim_value(sim, "arena_size_x", 18.0)),
         "arena_size_z": float(_sim_value(sim, "arena_size_z", 18.0)),
         "target_hits": int(_sim_value(sim, "target_hits", 100)),

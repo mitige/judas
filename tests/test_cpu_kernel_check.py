@@ -96,6 +96,8 @@ def test_kernel_action_delay_matches_sim_ref(binary, tmp_path):
     démarrage (actions nulles les d premiers ticks) et le combat."""
     cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=15,
                     max_ticks=300, delay_min=2, delay_max=2,
+                    reward_sprint_hit=0.35,
+                    reward_trade_penalty=0.4,
                     reward_combo=0.25, combo_window=60, combo_cap=5,
                     aim_smooth_min=0.5, aim_smooth_max=0.75)
 

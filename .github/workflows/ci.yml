@@ -1,0 +1,39 @@
+# CI: Python core on CPU plus Node app checks.
+# CUDA-only tests skip themselves. The sim_ref <-> kernel equivalence is still
+# exercised through the CPU harness compiled from tools/cpu_check.cpp, which
+# uses the same shared kernel logic. Real GPU validation remains local.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: PyTorch CPU
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Judas + dev dependencies
+        run: pip install -e ".[dev]"
+      - name: pytest
+        run: python -m pytest tests -q
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Node tests
+        run: node --test tools/persistence.test.mjs tools/health.test.mjs
+      - name: build app
+        run: npm --prefix app ci && npm --prefix app run build
+      - name: build viz
+        run: npm --prefix viz ci && npm --prefix viz run build

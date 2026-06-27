@@ -46,7 +46,10 @@ class TrainingManager:
         if self.venv_scripts.exists():
             path_value = str(self.venv_scripts) + os.pathsep + path_value
         self._set_env_path(env, path_value)
-        env.setdefault("TORCH_CUDA_ARCH_LIST", "8.6")
+        if "TORCH_EXTENSIONS_DIR" not in env:
+            env["TORCH_EXTENSIONS_DIR"] = str(self.root / "torch_extensions_judas")
+        # l'arch CUDA est auto-détectée par sim/judas_sim.py dans le process
+        # d'entraînement lui-même (portable au-delà de la 3060)
         return env
 
     @staticmethod
@@ -105,11 +108,38 @@ class TrainingManager:
 
             cmd = [str(self.python), "-m", "train.run", "--config", str(cfg_path)]
             if resume:
-                cmd += ["--resume", resume]
+                resume_path = self._resolve_resume_path(resume)
+                if (not resume_path.exists()
+                    and cfg.get("resume_as_seed")
+                    and name in {
+                        "combo_god_recovery_kb092_combo12",
+                        "combo_god_leaderboard10_combo12",
+                        "combo_god_countertap96_combo12",
+                    }):
+                    seed_candidates = []
+                    if name == "combo_god_recovery_kb092_combo12":
+                        seed_candidates.append(
+                            self.root / "runs" / "combo_god_leaderboard10_combo12" / "safe_latest.pt"
+                        )
+                    if name == "combo_god_leaderboard10_combo12":
+                        seed_candidates.append(
+                            self.root / "runs" / "combo_god_countertap96_combo12" / "safe_latest.pt"
+                        )
+                    seed_candidates.append(
+                        self.root / "runs" / "combo_god_directpad_lock_combo12" / "safe_latest.pt"
+                    )
+                    for candidate in seed_candidates:
+                        if candidate.exists():
+                            resume_path = candidate
+                            break
+                if resume_path.exists():
+                    cmd += ["--resume", str(resume_path)]
             self.last_exit_code = None
             self.last_error = None
             log = open(run_dir / "train.log", "a", encoding="utf-8")
             log.write(f"\n[daemon] start cmd: {' '.join(cmd)}\n")
+            if resume and "--resume" not in cmd:
+                log.write(f"[daemon] resume ignoré: checkpoint introuvable {resume}\n")
             log.flush()
             try:
                 proc = subprocess.Popen(cmd, cwd=str(self.root),
@@ -132,6 +162,24 @@ class TrainingManager:
                              daemon=True).start()
             return self.status()
 
+    def _resolve_resume_path(self, resume: str) -> Path:
+        resume_path = Path(resume)
+        if not resume_path.is_absolute():
+            resume_path = self.root / resume_path
+        if not resume_path.exists() and resume_path.name == "latest.pt":
+            safe_path = resume_path.with_name("safe_latest.pt")
+            if safe_path.exists():
+                return safe_path
+        return resume_path
+
+    def _preferred_restart_checkpoint(self, run_name: str) -> Path | None:
+        run_dir = self.root / "runs" / run_name
+        for name in ("safe_latest.pt", "latest.pt"):
+            ckpt = run_dir / name
+            if ckpt.exists():
+                return ckpt
+        return None
+
     def _watchdog(self, proc: subprocess.Popen) -> None:
         """Relance automatiquement (resume latest) un entraînement crashé."""
         code = proc.wait()
@@ -151,12 +199,12 @@ class TrainingManager:
             if self._manual_stop or proc is not self.proc:
                 return
             self.restarts += 1
-            latest = (self.root / "runs" / (self.run_name or "boxing")
-                      / "latest.pt")
+            resume_ckpt = self._preferred_restart_checkpoint(
+                self.run_name or "boxing")
             self.proc = None
             try:
                 self.start(self._last_cfg,
-                           resume=str(latest) if latest.exists() else None,
+                           resume=str(resume_ckpt) if resume_ckpt else None,
                            autorestart=True, _is_restart=True)
             except RuntimeError:
                 pass
@@ -225,6 +273,8 @@ class TrainingManager:
                 "name": d.name,
                 "checkpoints": [c.name for c in ckpts],
                 "latest": (d / "latest.pt").exists(),
+                "safe": (d / "safe_latest.pt").exists(),
+                "best": (d / "best.pt").exists(),   # meilleur eval vs bot
                 "last_metrics": last[0] if last else None,
             })
         return out

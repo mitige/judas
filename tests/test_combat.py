@@ -55,11 +55,23 @@ def test_knockback_sprint_bonus_and_reset():
     a, t = duo(dist=2.0)
     a.sprinting = True
     a.vz = 0.2
-    try_attack(a, t, click_cooldown_ticks=2)
+    res = try_attack(a, t, click_cooldown_ticks=2)
+    assert res.sprint_hit
     assert abs(t.vz - (0.4 + 0.5)) < 1e-9
     assert abs(t.vy - (KNOCKBACK_Y_CAP + 0.1)) < 1e-9
     assert abs(a.vz - 0.2 * 0.6) < 1e-9
     assert not a.sprinting               # sprint reset vanilla
+
+
+def test_attack_result_marks_only_landed_sprint_hits():
+    a, t = duo(dist=2.0)
+    assert not try_attack(a, t, click_cooldown_ticks=2).sprint_hit
+
+    a, t = duo(dist=3.45)
+    a.sprinting = True
+    res = try_attack(a, t, click_cooldown_ticks=2)
+    assert res.swung and not res.landed
+    assert not res.sprint_hit
 
 
 def test_knockback_halves_existing_velocity():

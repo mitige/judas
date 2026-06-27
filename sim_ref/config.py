@@ -31,6 +31,7 @@ class BoxingConfig:
     """Règles et géométrie d'un match boxing 1.8.9."""
     arena_size_x: float = 18.0      # murs à x=0 et x=arena_size_x
     arena_size_z: float = 18.0
+    post_sprint_hit_stop: bool = False
     spawn_gap: float = 0.0          # demi-distance de spawn (0 = arène/3)
     kb_h_mult: float = 1.0          # knockback custom : mult. horizontal
     kb_v_mult: float = 1.0          # knockback custom : mult. vertical

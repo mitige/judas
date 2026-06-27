@@ -6,11 +6,23 @@ Version longue : python -m sim.verify
 
 import numpy as np
 import pytest
+import os
+import shutil
 
 torch = pytest.importorskip("torch")
+from torch.utils.cpp_extension import CUDA_HOME  # noqa: E402
+
+
+def _has_cuda_build_toolchain() -> bool:
+    if not torch.cuda.is_available() or CUDA_HOME is None:
+        return False
+    if os.name == "nt":
+        return shutil.which("cl") is not None
+    return shutil.which("c++") is not None or shutil.which("g++") is not None
 
 pytestmark = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA requis (PC RTX 3060)")
+    not _has_cuda_build_toolchain(),
+    reason="CUDA + toolchain C++ requis pour compiler l'extension")
 
 from sim import SimConfig                      # noqa: E402
 from sim.ref_backend import JudasSimRef        # noqa: E402
@@ -52,8 +64,10 @@ def test_cuda_matches_reference_full_options():
     par la spec combo), kb custom, shaping distance, latence d'action et
     modèle moteur de visée (0.5/0.75 : exacts en float32, médiane 0.625)."""
     cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=15,
-                    max_ticks=300, reward_combo=0.25, combo_window=60,
-                    combo_cap=5, reward_dist=0.002,
+                    max_ticks=300, reward_sprint_hit=0.35,
+                    reward_trade_penalty=0.4,
+                    reward_combo=0.25, combo_window=60, combo_cap=5,
+                    reward_dist=0.002,
                     kb_h_mult=0.9055, kb_v_mult=0.8835, kb_idle_mult=0.6,
                     delay_min=2, delay_max=2,
                     aim_smooth_min=0.5, aim_smooth_max=0.75)

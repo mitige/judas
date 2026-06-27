@@ -22,9 +22,15 @@ class ArenaCalib:
 def player_from_msg(p: dict, arena: ArenaCalib) -> PlayerState:
     """JSON du mod -> PlayerState dans le repère arène.
 
-    hurtTime (0..10, animation client) est converti vers l'échelle
-    hurtResistantTime (0..20) utilisée par l'observation : x2.
+    Le mod (thread jeu) fournit les vrais champs vanilla quand il le peut :
+    - hurtResistantTime (i-frames 0..20) exact ; sinon fallback depuis hurtTime
+      (animation client 0..10) x2 — exact tant que les deux décrémentent ensemble.
+    - jumpTicks (0..10) pour soi ; sinon 0 (négligeable en boxing).
     """
+    if "hurtResistantTime" in p:
+        hrt = min(20, max(0, int(p["hurtResistantTime"])))
+    else:
+        hrt = min(20, int(p["hurtTime"]) * 2)
     return PlayerState(
         x=float(p["x"]) - arena.origin_x,
         y=float(p["y"]) - arena.floor_y,
@@ -36,7 +42,9 @@ def player_from_msg(p: dict, arena: ArenaCalib) -> PlayerState:
         pitch=float(p["pitch"]),
         on_ground=bool(p["onGround"]),
         sprinting=bool(p["sprinting"]),
-        hurt_resistant_time=min(20, int(p["hurtTime"]) * 2),
+        hurt_resistant_time=hrt,
+        jump_ticks=min(10, max(0, int(p.get("jumpTicks", 0)))),
+        click_cooldown=min(20, max(0, int(p.get("clickCooldown", 0)))),
         hits=int(p.get("hits", 0)),
     )
 

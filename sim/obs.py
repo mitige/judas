@@ -92,7 +92,10 @@ def build_obs(own, opp, cfg, h, last_action, tick_count: int) -> list:
     o[34] = (cfg.max_ticks - tick_count) / float(cfg.max_ticks)
     o[35] = h.max_cps / 20.0
     o[36] = h.max_rot_speed / 180.0
-    o[37] = h.action_delay / 8.0
+    # Opponent click cooldown is the critical timing signal for hit-select:
+    # the agent must distinguish a clean counter window from a trade window.
+    # Action delay is static per rollout and less useful than live cooldown.
+    o[37] = opp.click_cooldown / 20.0
     for k in range(7):
         o[38 + k] = float(last_action[k])
     o[45] = dist_h / 8.0

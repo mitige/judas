@@ -11,6 +11,7 @@ Conventions d'actions (float32 [N, 2, 7]) — identiques au kernel CUDA :
   a[6] attack > 0.5
 """
 
+
 import numpy as np
 
 from sim_ref import Action, BoxingConfig, BoxingMatch, HumanizationConfig
@@ -38,6 +39,10 @@ def combo_step(combo, last_hit, tick, dealt0, dealt1, window, cap):
     last_hit = [int(last_hit[0]), int(last_hit[1])]
     dealt = (dealt0, dealt1)
     mult = [0, 0]
+    if dealt[0] and dealt[1]:
+        last_hit[0] = tick
+        last_hit[1] = tick
+        return [0, 0], last_hit, 0, 0
     for i in range(2):
         if dealt[i]:
             combo[i] = combo[i] + 1 if tick - last_hit[i] <= window else 1
@@ -81,6 +86,7 @@ class JudasSimRef:
             kb_h_mult=c.kb_h_mult,
             kb_v_mult=c.kb_v_mult,
             kb_idle_mult=c.kb_idle_mult,
+            post_sprint_hit_stop=c.post_sprint_hit_stop,
             target_hits=c.target_hits,
             max_ticks=c.max_ticks,
             speed_amplifier=c.speed_amplifier,
@@ -121,6 +127,8 @@ class JudasSimRef:
         reward = np.zeros((self.n_envs, 2), dtype=np.float32)
         done = np.zeros(self.n_envs, dtype=bool)
         wins = np.full(self.n_envs, -2, dtype=np.int32)
+        combo_info = np.zeros((self.n_envs, 2), dtype=np.int32)
+        dealt_info = np.zeros((self.n_envs, 2), dtype=np.int32)
         c = self.cfg
 
         for n in range(self.n_envs):
@@ -140,23 +148,59 @@ class JudasSimRef:
             hits_before = [m.players[0].hits, m.players[1].hits]
             m.step((acts[0], acts[1]))
             dealt = [m.players[k].hits - hits_before[k] for k in range(2)]
+            sprint_hit = [bool(m.last_sprint_hits[k] and dealt[k] > 0)
+                          for k in range(2)]
+
+            drop_penalty = [0.0, 0.0]
+            if c.reward_combo_drop != 0.0:
+                for i in range(2):
+                    expired = (self._combo[n, i] >= c.combo_drop_min
+                               and m.tick_count - self._last_hit[n, i]
+                               > c.combo_window)
+                    if expired and dealt[1 - i] == 0:
+                        drop_penalty[i] = (c.reward_combo_drop
+                                           * max(int(self._combo[n, i]) - 1, 0))
 
             # bonus combo (zéro-somme) — mêmes règles que le kernel CUDA
             cb, lh, m0, m1 = combo_step(self._combo[n], self._last_hit[n],
                                         m.tick_count, dealt[0] > 0,
                                         dealt[1] > 0, c.combo_window,
                                         c.combo_cap)
+            for i in range(2):
+                if cb[i] > 0 and m.tick_count - lh[i] > c.combo_window:
+                    cb[i] = 0
             self._combo[n], self._last_hit[n] = cb, lh
+            combo_info[n] = self._combo[n]
+            dealt_info[n] = dealt
             bonus = (c.reward_combo * m0, c.reward_combo * m1)
+            sprint_bonus = (c.reward_sprint_hit if sprint_hit[0] else 0.0,
+                            c.reward_sprint_hit if sprint_hit[1] else 0.0)
+            trade_penalty = c.reward_trade_penalty if (
+                dealt[0] > 0 and dealt[1] > 0) else 0.0
 
             for i in range(2):
                 reward[n, i] = (c.reward_hit * dealt[i]
                                 + c.reward_hurt * dealt[1 - i]
-                                + bonus[i] - bonus[1 - i])
+                                + bonus[i] - bonus[1 - i]
+                                + sprint_bonus[i] - sprint_bonus[1 - i]
+                                - trade_penalty
+                                - drop_penalty[i])
+                p, q = m.players[i], m.players[1 - i]
                 if c.reward_dist != 0.0:
-                    p, q = m.players[i], m.players[1 - i]
                     d = ((p.x - q.x) ** 2 + (p.y - q.y) ** 2 + (p.z - q.z) ** 2) ** 0.5
                     reward[n, i] -= c.reward_dist * d
+
+            if c.reward_combo_pressure != 0.0:
+                for i in range(2):
+                    active = (self._combo[n, i] > 0
+                              and m.tick_count - self._last_hit[n, i]
+                              <= c.combo_window)
+                    if active:
+                        p, q = m.players[i], m.players[1 - i]
+                        dh = ((p.x - q.x) ** 2 + (p.z - q.z) ** 2) ** 0.5
+                        close = max(0.0, min((3.2 - dh) / 3.2, 1.0))
+                        chain = min(int(self._combo[n, i]), c.combo_cap)
+                        reward[n, i] += c.reward_combo_pressure * close * chain
 
             if m.done:
                 done[n] = True
@@ -173,4 +217,4 @@ class JudasSimRef:
 
             obs[n] = self._obs_one(n)
 
-        return obs, reward, done, {"winner": wins}
+        return obs, reward, done, {"winner": wins, "combo": combo_info, "dealt": dealt_info}

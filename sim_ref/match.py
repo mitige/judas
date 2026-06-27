@@ -50,6 +50,8 @@ class BoxingMatch:
         self.tick_count = 0
         self.winner: int | None = None
         self._delay_queues: list[deque] = []
+        self.last_dealt = [0, 0]
+        self.last_sprint_hits = [False, False]
         self.reset()
 
     # ------------------------------------------------------------------ reset
@@ -65,6 +67,8 @@ class BoxingMatch:
         ]
         self.tick_count = 0
         self.winner = None
+        self.last_dealt = [0, 0]
+        self.last_sprint_hits = [False, False]
         self._delay_queues = []
         for h in cfg.humanization:
             q: deque = deque()
@@ -78,6 +82,8 @@ class BoxingMatch:
         if self.winner is not None:
             return
         cfg = self.cfg
+        self.last_dealt = [0, 0]
+        self.last_sprint_hits = [False, False]
 
         # Latence simulée : l'action décidée maintenant s'applique plus tard
         applied: list[Action] = []
@@ -118,16 +124,23 @@ class BoxingMatch:
         for i, p in enumerate(self.players):
             if applied[i].attack:
                 tgt = applied[1 - i]
-                try_attack(p, self.players[1 - i],
-                           cfg.humanization[i].click_cooldown_ticks,
-                           kb_h=cfg.kb_h_mult, kb_v=cfg.kb_v_mult,
-                           kb_idle=cfg.kb_idle_mult,
-                           target_idle=(tgt.forward == 0 and tgt.strafe == 0))
+                res = try_attack(p, self.players[1 - i],
+                                 cfg.humanization[i].click_cooldown_ticks,
+                                 kb_h=cfg.kb_h_mult, kb_v=cfg.kb_v_mult,
+                                 kb_idle=cfg.kb_idle_mult,
+                                 target_idle=(tgt.forward == 0 and tgt.strafe == 0))
+                self.last_dealt[i] = 1 if res.landed else 0
+                self.last_sprint_hits[i] = bool(res.sprint_hit)
 
         # 5. mouvement
         for i, p in enumerate(self.players):
             a = applied[i]
-            living_update_movement(p, float(a.strafe), float(a.forward), a.jump,
+            move_forward = a.forward
+            move_strafe = a.strafe
+            if cfg.post_sprint_hit_stop and self.last_sprint_hits[i]:
+                move_forward = 0
+                move_strafe = 0
+            living_update_movement(p, float(move_strafe), float(move_forward), a.jump,
                                    cfg.arena_size_x, cfg.arena_size_z,
                                    cfg.speed_amplifier)
 

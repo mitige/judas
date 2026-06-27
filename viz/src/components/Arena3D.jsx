@@ -35,8 +35,25 @@ export default function Arena3D({ stateRef }) {
     scene.add(arenaGroup);
     let builtSize = null;
 
+    function disposeObject(obj) {
+      obj.geometry?.dispose?.();
+      const material = obj.material;
+      if (Array.isArray(material)) {
+        material.forEach((m) => m.dispose?.());
+      } else {
+        material?.dispose?.();
+      }
+    }
+
+    function clearGroup(group) {
+      for (const child of [...group.children]) {
+        group.remove(child);
+        child.traverse?.(disposeObject);
+      }
+    }
+
     function buildArena(sx, sz) {
-      arenaGroup.clear();
+      clearGroup(arenaGroup);
       builtSize = `${sx}x${sz}`;
       const grid = new THREE.GridHelper(Math.max(sx, sz), Math.max(sx, sz),
                                         0x223052, 0x131c33);
@@ -109,6 +126,26 @@ export default function Arena3D({ stateRef }) {
       rings.push({ m, life: 1 });
     }
 
+    function clearDynamicVisuals() {
+      players.forEach((P, i) => {
+        for (const dot of P.trail) {
+          trailGroup.remove(dot);
+          dot.geometry.dispose();
+          dot.material.dispose();
+        }
+        P.trail = [];
+        P.prevHurt = 0;
+        P.body.material.opacity = 0.1;
+        P.edges.material.color.set(COLORS[i]);
+      });
+      while (rings.length) {
+        const r = rings.pop();
+        scene.remove(r.m);
+        r.m.geometry.dispose();
+        r.m.material.dispose();
+      }
+    }
+
     // ------------------------------------------------------------- resize
     function resize() {
       const w = mount.clientWidth, h = mount.clientHeight;
@@ -127,10 +164,16 @@ export default function Arena3D({ stateRef }) {
       let d = ((b - a) % 360 + 540) % 360 - 180;
       return a + d * t;
     };
+    let lastResetSeq = stateRef.current?.resetSeq ?? 0;
 
     function animate() {
       raf = requestAnimationFrame(animate);
       const S = stateRef.current;
+      const resetSeq = S.resetSeq ?? 0;
+      if (resetSeq !== lastResetSeq) {
+        lastResetSeq = resetSeq;
+        clearDynamicVisuals();
+      }
       const cur = S.cur, prev = S.prev || cur;
 
       if (cur?.players) {
@@ -217,6 +260,8 @@ export default function Arena3D({ stateRef }) {
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.dispose();
+      clearDynamicVisuals();
+      clearGroup(arenaGroup);
       renderer.dispose();
       mount.removeChild(renderer.domElement);
     };

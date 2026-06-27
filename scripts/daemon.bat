@@ -1,3 +1,3 @@
 @echo off
-call "%~dp0env.bat" || exit /b 1
-python -m serve.daemon %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_judas_daemon.ps1" %*
+exit /b %ERRORLEVEL%

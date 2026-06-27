@@ -1,7 +1,7 @@
 {
   "name": "boxing",
-  "total_iters": 300,
-  "n_envs": 32768,
+  "total_iters": 2000,
+  "n_envs": 8192,
   "rollout_ticks": 128,
   "league_frac": 0.3,
   "league_bot_frac": 0.25,
@@ -29,6 +29,8 @@
     "reward_hurt": -0.85,
     "reward_win": 10.0,
     "reward_dist": 0.002,
+    "reward_sprint_hit": 0.35,
+    "reward_trade_penalty": 0.4,
     "reward_combo": 0.25,
     "combo_window": 25,
     "combo_cap": 5,
@@ -36,18 +38,19 @@
   },
   "policy": {
     "history": 8,
-    "d_model": 128,
+    "d_model": 96,
+    "n_heads": 4,
     "n_layers": 2,
-    "attention": false
+    "attention": true
   },
   "ppo": {
     "lr": 0.0003,
     "gamma": 0.995,
     "lam": 0.95,
     "clip": 0.2,
-    "epochs": 1,
-    "minibatch_size": 65536,
-    "sample_frac": 0.7,
+    "epochs": 2,
+    "minibatch_size": 32768,
+    "sample_frac": 0.5,
     "ent_coef": 0.005,
     "vf_coef": 0.5,
     "max_grad_norm": 0.5,

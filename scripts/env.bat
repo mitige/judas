@@ -1,5 +1,7 @@
 @echo off
-rem Environnement commun : venv + MSVC (pour le JIT CUDA) + arch 3060
+rem Environnement commun : venv + MSVC (pour le JIT CUDA).
+rem L'arch CUDA est auto-detectee par sim/judas_sim.py (TORCH_CUDA_ARCH_LIST
+rem peut etre exportee manuellement pour forcer une arch).
 cd /d "%~dp0.."
 if not exist .venv\Scripts\activate.bat (
   echo [!] .venv introuvable : lancer setup.bat depuis la racine du projet.
@@ -15,8 +17,6 @@ if errorlevel 1 (
   echo       setup.bat
   exit /b 1
 )
-
-set TORCH_CUDA_ARCH_LIST=8.6
 
 where cl >nul 2>nul
 if not errorlevel 1 goto :eof

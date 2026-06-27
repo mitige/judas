@@ -78,6 +78,7 @@ def can_hit(attacker: PlayerState, target: PlayerState) -> bool:
 class AttackResult:
     landed: bool = False           # hit comptabilisé
     swung: bool = False            # clic consommé (même raté)
+    sprint_hit: bool = False       # hit porté alors que l'attaquant sprintait
 
 
 def knock_back(target: PlayerState, ratio_x: float, ratio_z: float,
@@ -155,6 +156,7 @@ def try_attack(attacker: PlayerState, target: PlayerState,
         return res
 
     res.landed = True
+    res.sprint_hit = attacker.sprinting
     target.hurt_resistant_time = C.MAX_HURT_RESISTANT_TIME
     attacker.hits += 1
 

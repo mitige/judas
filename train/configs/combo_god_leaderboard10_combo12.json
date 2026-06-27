@@ -1,0 +1,253 @@
+{
+    "name":  "combo_god_leaderboard10_combo12",
+    "n_envs":  4096,
+    "rollout_ticks":  96,
+    "total_iters":  5000,
+    "seed":  4,
+    "league_frac":  0,
+    "league_bot_frac":  0.0,
+    "league_spar_bot_frac":  0.22,
+    "league_rehit_bot_frac":  0.10,
+    "league_pressure_bot_frac":  0.06,
+    "league_combo_chase_bot_frac":  0.32,
+    "league_counter_bot_frac":  0.30,
+    "league_pad_bot_frac":  0.0,
+    "pool_every":  100,
+    "save_every":  1,
+    "keep_ckpts":  80,
+    "resume_as_seed":  true,
+    "resume_same_run_as_seed":  true,
+    "fresh_optimizer_on_resume":  true,
+    "safety_stop_on_regression":  true,
+    "safety_restore_on_low_combo":  false,
+    "safety_under_combo_escape":  0.02,
+    "safety_back_frac":  0.002,
+    "safety_min_strafe_frac":  0.50,
+    "safety_min_opener_strafe_frac":  0.72,
+    "safety_min_opener_strafe_hold_frac":  0.70,
+    "safety_opener_ticks":  20,
+    "safety_min_opener_pressure_frac":  0.40,
+    "safety_min_combo_tap_frac":  0.15,
+    "safety_min_combo_z_tap_frac":  0.12,
+    "safety_max_combo_s_tap_frac":  0.02,
+    "safety_min_hit_wtap_frac":  0.035,
+    "safety_min_chase_hit_wtap_frac":  0.035,
+    "safety_rollout_hit_wtap_slack":  0.32,
+    "safety_hit_wtap_blocks_promotion":  true,
+    "safety_min_under_combo_counter_hit_frac":  0.085,
+    "safety_under_combo_avoid_frac":  0.055,
+    "safety_under_combo_avoid_min_combo12":  0.08,
+    "safety_under_combo_avoid_min_hit_rate":  80,
+    "score_under_combo_avoid_target":  0.14,
+    "score_under_combo_avoid_weight":  0.30,
+    "score_under_combo_avoid_cap":  0.015,
+    "safety_min_under_combo_hit_select_clean_frac":  0.20,
+    "safety_max_under_combo_hit_select_trade_frac":  0.12,
+    "safety_strafe_frac":  1.0,
+    "safety_sky_frac":  0.16,
+    "safety_min_hit_rate":  40,
+    "eval_every":  0,
+    "eval_envs":  48,
+    "eval_target_hits":  50,
+    "eval_max_ticks":  5500,
+    "shaping_floor_frac":  1.0,
+    "shaping_hit_rate":  24.0,
+    "shaping_engage_rate":  0.32,
+    "shaping_combo5_rate":  0.10,
+    "shaping_combo12_state":  0.45,
+    "shaping_decay_iters":  520,
+    "curriculum_gap":  1.5,
+    "sim":  {
+                "arena_size_x":  40.0,
+                "arena_size_z":  40.0,
+                "target_hits":  140,
+                "max_ticks":  11000,
+                "speed_amplifier":  1.0,
+                "post_sprint_hit_stop":  true,
+                "cps_min":  10.0,
+                "cps_max":  10.0,
+                "rot_speed_min":  150.0,
+                "rot_speed_max":  240.0,
+                "delay_min":  0,
+                "delay_max":  0,
+                "aim_smooth_min":  0.0,
+                "aim_smooth_max":  0.04,
+                "spawn_jitter":  0.4,
+                "randomize":  true,
+                "kb_h_mult":  0.9055,
+                "kb_v_mult":  0.8835,
+                "kb_idle_mult":  0.6,
+                "reward_hit":  1.15,
+                "reward_hurt":  -2.2,
+                "reward_win":  10.0,
+                "reward_dist":  0.12,
+                "reward_sprint_hit":  3,
+                "reward_trade_penalty":  6.2,
+                "reward_combo":  12.2,
+                "combo_window":  92,
+                "combo_cap":  28,
+                "reward_combo_drop":  0.85,
+                "combo_drop_min":  4,
+                "reward_combo_pressure":  3.6,
+                "reward_aim":  0.25,
+                "reward_bad_pitch":  1.8,
+                "reward_chase":  1.2,
+                "reward_turn_aim":  0.3,
+                "reward_aggression":  1.0,
+                "reward_no_escape":  1.8,
+                "reward_combo_focus":  3.8,
+                "reward_combo_tap":  6.4,
+                "reward_opener_strafe":  2.8,
+                "reward_hit_wtap":  15.6,
+                "reward_counter_hit":  26.0,
+                "reward_hit_select":  28.0,
+                "reward_chase_rechain":  9.2,
+                "reward_chase_hit_select":  22.0,
+                "reward_chase_close_counter":  14.0,
+                "reward_chase_counter":  30.0,
+                "reward_spar_counter":  26.0
+            },
+    "policy":  {
+                   "history":  8,
+                   "d_model":  96,
+                   "n_heads":  4,
+                   "n_layers":  2,
+                   "attention":  true,
+                   "aim_residual":  1.15,
+                   "direct_movement_lock":  true,
+                   "leaderboard_boxing":  true,
+                   "direct_counter_attack_lock":  true,
+                    "direct_hit_select_attack_lock":  true,
+                   "direct_hit_select_attack_bias":  18.0,
+                   "under_combo_attack_lock":  false
+               },
+    "ppo":  {
+                "lr":  0.0000015,
+                "gamma":  0.995,
+                "lam":  0.95,
+                "ent_coef":  0.0065,
+                "clip":  0.04,
+                "epochs":  1,
+                "minibatch_size":  16384,
+                "sample_frac":  0.28,
+                "vf_coef":  0.5,
+                "max_grad_norm":  0.5,
+                "amp":  true,
+                "coach_coef":  0.36,
+                "coach_until":  0.90
+            },
+    "pbt":  {
+                "population":  1,
+                "interval":  25,
+                "cross_frac":  0.25,
+                "mutate":  {
+                               "ppo.lr":  [
+                                              0.75,
+                                              1.25
+                                          ],
+                               "ppo.ent_coef":  [
+                                                    0.75,
+                                                    1.25
+                                                ],
+                               "sim.reward_combo":  [
+                                                        0.9,
+                                                        1.15
+                                                    ],
+                               "sim.reward_sprint_hit":  [
+                                                             0.9,
+                                                             1.12
+                                                         ],
+                               "sim.reward_combo_pressure":  [
+                                                                 0.85,
+                                                                 1.2
+                                                             ],
+                               "sim.reward_aim":  [
+                                                      0.85,
+                                                      1.25
+                                                  ],
+                               "sim.reward_bad_pitch":  [
+                                                            0.9,
+                                                            1.25
+                                                        ],
+                               "sim.reward_chase":  [
+                                                        0.85,
+                                                        1.2
+                                                    ],
+                               "sim.reward_turn_aim":  [
+                                                           0.85,
+                                                           1.25
+                                                       ],
+                               "sim.reward_aggression":  [
+                                                             0.85,
+                                                             1.25
+                                                         ],
+                               "sim.reward_no_escape":  [
+                                                            0.85,
+                                                            1.25
+                                                        ],
+                               "sim.reward_combo_tap":  [
+                                                            0.85,
+                                                            1.25
+                                                        ],
+                               "sim.reward_opener_strafe":  [
+                                                                 0.85,
+                                                                 1.25
+                                                             ],
+                               "sim.reward_hit_wtap":  [
+                                                            0.85,
+                                                            1.25
+                                                        ],
+                               "sim.reward_counter_hit":  [
+                                                              0.85,
+                                                              1.25
+                                                        ],
+                               "sim.reward_hit_select":  [
+                                                              0.85,
+                                                              1.25
+                                                        ],
+                               "sim.reward_chase_rechain":  [
+                                                                 0.85,
+                                                                 1.2
+                                                        ],
+                               "sim.reward_chase_hit_select":  [
+                                                                    0.85,
+                                                                    1.25
+                                                        ],
+                               "sim.reward_chase_close_counter":  [
+                                                                       0.85,
+                                                                       1.25
+                                                        ],
+                               "sim.reward_chase_counter":  [
+                                                                0.85,
+                                                                1.25
+                                                        ],
+                               "sim.reward_spar_counter":  [
+                                                               0.85,
+                                                               1.25
+                                                        ]
+                           }
+            },
+    "shaping_sky_frac":  0.24,
+    "combo_eval_every":  24,
+    "combo_eval_envs":  128,
+    "combo_eval_ticks":  1200,
+    "combo_eval_chase":  true,
+    "combo_eval_chase_envs":  64,
+    "combo_eval_chase_ticks":  900,
+    "combo_eval_spar":  true,
+    "combo_eval_spar_envs":  64,
+    "combo_eval_spar_ticks":  900,
+    "combo_eval_rehit":  true,
+    "combo_eval_rehit_envs":  64,
+    "combo_eval_rehit_ticks":  900,
+    "combo_eval_pressure":  true,
+    "combo_eval_pressure_envs":  64,
+    "combo_eval_pressure_ticks":  900,
+    "combo_eval_counter":  true,
+    "combo_eval_counter_envs":  64,
+    "combo_eval_counter_ticks":  900,
+    "safety_require_chase_combo":  true,
+    "safety_require_counter_recovery":  true,
+    "safety_fresh_min_hit_rate":  10,
+    "safety_promote_min_combo_max":  8
+}

@@ -2,13 +2,14 @@
 setlocal
 cd /d "%~dp0.."
 
+if /i not "%JUDAS_SKIP_UI_STOP%"=="1" (
+  call scripts\stop_judas_ui.bat -Surface app
+  if errorlevel 1 exit /b %ERRORLEVEL%
+)
+
 if /i not "%JUDAS_SKIP_DAEMON%"=="1" (
-  netstat -ano -p tcp | findstr /R /C:":8765 .*LISTENING" >nul
-  if errorlevel 1 (
-    echo Starting judas daemon on 127.0.0.1:8765...
-    start "judas-daemon" /min cmd /k scripts\daemon.bat
-    timeout /t 2 /nobreak >nul
-  )
+  call scripts\daemon.bat
+  if errorlevel 1 exit /b %ERRORLEVEL%
 )
 
 cd /d "%~dp0..\app"

@@ -11,6 +11,7 @@ class SimConfig:
     target_hits: int = 100
     max_ticks: int = 20 * 60 * 5
     speed_amplifier: int = 1            # Speed II (boxing)
+    post_sprint_hit_stop: bool = False  # release W for movement after a sprint-hit
 
     # Humanisation — plages de domain randomization (min == max => fixe)
     cps_min: float = 12.0
@@ -36,9 +37,14 @@ class SimConfig:
     reward_hurt: float = -1.0
     reward_win: float = 10.0
     reward_dist: float = 0.0            # shaping optionnel : -d * reward_dist
+    reward_sprint_hit: float = 0.0      # bonus zero-somme sur hit porte en sprint
+    reward_trade_penalty: float = 0.0   # malus applique aux deux agents sur trade
     reward_combo: float = 0.0           # bonus par maillon de chaîne (0 = off)
     combo_window: int = 25              # ticks max entre 2 hits d'une chaîne
     combo_cap: int = 5                  # plafond du multiplicateur de chaîne
+    reward_combo_drop: float = 0.0      # malus quand une chaine active expire
+    combo_drop_min: int = 5             # longueur minimale avant malus d'expiration
+    reward_combo_pressure: float = 0.0  # bonus dense pour rester a portee pendant une chaine           # pression avant et anti-recul hors portee
 
     # Divers
     randomize: bool = False             # active jitter + randomization humanisation
@@ -61,11 +67,14 @@ class SimConfig:
                 f"reçu ({self.aim_smooth_min}, {self.aim_smooth_max})")
         # Le kernel caste combo_window/combo_cap en int : exiger des entiers
         # pour qu'aucune divergence kernel <-> ref ne soit possible.
-        if self.combo_window != int(self.combo_window) \
-                or self.combo_cap != int(self.combo_cap):
-            raise ValueError("combo_window et combo_cap doivent être entiers")
+        if (self.combo_window != int(self.combo_window)
+                or self.combo_cap != int(self.combo_cap)
+                or self.combo_drop_min != int(self.combo_drop_min)):
+            raise ValueError(
+                "combo_window, combo_cap et combo_drop_min doivent etre entiers")
         self.combo_window = int(self.combo_window)
         self.combo_cap = int(self.combo_cap)
+        self.combo_drop_min = int(self.combo_drop_min)
 
     def as_floats(self) -> list:
         """Sérialise pour le kernel CUDA (ordre = struct SimParams du .cu)."""
@@ -73,6 +82,7 @@ class SimConfig:
             self.arena_size_x, self.arena_size_z,
             float(self.target_hits), float(self.max_ticks),
             float(self.speed_amplifier),
+            1.0 if self.post_sprint_hit_stop else 0.0,
             self.cps_min, self.cps_max,
             self.rot_speed_min, self.rot_speed_max,
             float(self.delay_min), float(self.delay_max),
@@ -81,8 +91,12 @@ class SimConfig:
             1.0 if self.randomize else 0.0,
             self.spawn_gap,
             self.kb_h_mult, self.kb_v_mult, self.kb_idle_mult,
+            self.reward_sprint_hit,
+            self.reward_trade_penalty,
             self.reward_combo, float(self.combo_window), float(self.combo_cap),
             self.aim_smooth_min, self.aim_smooth_max,
+            self.reward_combo_drop, float(self.combo_drop_min),
+            self.reward_combo_pressure,
         ]
 
 

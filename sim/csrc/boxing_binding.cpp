@@ -12,26 +12,32 @@ void judas_tick_cuda(StatePtrs S, SimParams pr, const float *actions,
                      int *winner, int n_envs);
 
 static SimParams params_from_vec(const std::vector<double> &v) {
-    TORCH_CHECK(v.size() == 26, "SimParams: 26 valeurs attendues");
+    TORCH_CHECK(v.size() == 32, "SimParams: 32 valeurs attendues");
     SimParams p;
     p.arena_x = (float)v[0]; p.arena_z = (float)v[1];
     p.target_hits = (float)v[2]; p.max_ticks = (float)v[3]; p.amp = (float)v[4];
-    p.cps_min = (float)v[5]; p.cps_max = (float)v[6];
-    p.rot_min = (float)v[7]; p.rot_max = (float)v[8];
-    p.delay_min = (float)v[9]; p.delay_max = (float)v[10];
-    p.jitter = (float)v[11];
-    p.r_hit = (float)v[12]; p.r_hurt = (float)v[13];
-    p.r_win = (float)v[14]; p.r_dist = (float)v[15];
-    p.randomize = (float)v[16];
-    p.spawn_gap = (float)v[17];
-    p.kb_h = (float)v[18];
-    p.kb_v = (float)v[19];
-    p.kb_idle = (float)v[20];
-    p.r_combo = (float)v[21];
-    p.combo_window = (float)v[22];
-    p.combo_cap = (float)v[23];
-    p.smooth_min = (float)v[24];
-    p.smooth_max = (float)v[25];
+    p.post_sprint_hit_stop = (float)v[5];
+    p.cps_min = (float)v[6]; p.cps_max = (float)v[7];
+    p.rot_min = (float)v[8]; p.rot_max = (float)v[9];
+    p.delay_min = (float)v[10]; p.delay_max = (float)v[11];
+    p.jitter = (float)v[12];
+    p.r_hit = (float)v[13]; p.r_hurt = (float)v[14];
+    p.r_win = (float)v[15]; p.r_dist = (float)v[16];
+    p.randomize = (float)v[17];
+    p.spawn_gap = (float)v[18];
+    p.kb_h = (float)v[19];
+    p.kb_v = (float)v[20];
+    p.kb_idle = (float)v[21];
+    p.r_sprint_hit = (float)v[22];
+    p.r_trade_penalty = (float)v[23];
+    p.r_combo = (float)v[24];
+    p.combo_window = (float)v[25];
+    p.combo_cap = (float)v[26];
+    p.smooth_min = (float)v[27];
+    p.smooth_max = (float)v[28];
+    p.r_combo_drop = (float)v[29];
+    p.combo_drop_min = (float)v[30];
+    p.r_combo_pressure = (float)v[31];
     return p;
 }
 

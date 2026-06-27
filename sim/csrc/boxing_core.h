@@ -112,15 +112,19 @@ JD jreal jatan2(jreal y, jreal x) {
 
 struct SimParams {
     float arena_x, arena_z;
-    float target_hits, max_ticks, amp;
+    float target_hits, max_ticks, amp, post_sprint_hit_stop;
     float cps_min, cps_max, rot_min, rot_max, delay_min, delay_max;
     float jitter;
     float r_hit, r_hurt, r_win, r_dist;
     float randomize;
     float spawn_gap;     // demi-distance de spawn (0 = arène/3)
     float kb_h, kb_v, kb_idle;   // knockback custom (1.0 = vanilla)
+    float r_sprint_hit;        // bonus zero-somme sur hit porte en sprint
+    float r_trade_penalty;     // malus applique aux deux agents sur trade
     float r_combo, combo_window, combo_cap;   // bonus combo (0 = off)
     float smooth_min, smooth_max;   // inertie de visée [0,1) (0 = instantané)
+    float r_combo_drop, combo_drop_min;   // malus quand une chaine expire
+    float r_combo_pressure;   // bonus dense pour garder la pression combo            // pression avant et anti-recul hors portee
 };
 
 // État d'un agent en registres
@@ -271,6 +275,7 @@ JD bool can_hit(const P &a, const P &t) {
     return dist >= R0;
 }
 
+
 // 1.8.9 : /=2 et +0.4 vertical (cap 0.4) INCONDITIONNELS — la garde onGround
 // n'existe qu'en 1.9+. Indispensable au juggle aérien des combos.
 JD void knock_back(P &t, jreal rx, jreal rz, jreal kb_h, jreal kb_v) {
@@ -386,7 +391,9 @@ JD void write_obs(float *o, const P &own, const P &opp,
     o[34] = (float)(((double)pr.max_ticks - (double)tick) / (double)pr.max_ticks);
     o[35] = own.h_cps / 20.0f;
     o[36] = own.h_rot / 180.0f;
-    o[37] = (float)own.h_delay / 8.0f;
+    // Opponent click cooldown: timing signal for clean hit-select vs trade.
+    // Keep OBS_DIM unchanged by replacing the static action-delay slot.
+    o[37] = (float)opp.ccd / 20.0f;
     for (int k = 0; k < ACT_DIM; ++k) o[38 + k] = last_act[k];
     o[45] = (float)(dist_h / (jreal)8.0);
     o[46] = (float)(own.y / (jreal)4.0);
@@ -551,16 +558,27 @@ JD void tick_one(const StatePtrs &S, const SimParams &pr, const float *actions,
 
     // 4. attaques (séquentiel agent 0 puis 1, comme sim_ref)
     int dealt[2] = {0, 0};
-    for (int i = 0; i < 2; ++i)
-        if (atk[i])
+    int sprint_hit[2] = {0, 0};
+    int move_fwd[2] = {fwd[0], fwd[1]};
+    int move_strafe[2] = {strafe[0], strafe[1]};
+    for (int i = 0; i < 2; ++i) {
+        if (atk[i]) {
+            int was_sprinting = pl[i].spr;
             dealt[i] = try_attack(pl[i], pl[1 - i],
                                   (jreal)pr.kb_h, (jreal)pr.kb_v,
                                   (jreal)pr.kb_idle,
                                   fwd[1 - i] == 0 && strafe[1 - i] == 0);
+            sprint_hit[i] = dealt[i] && was_sprinting;
+            if (pr.post_sprint_hit_stop != 0.0f && sprint_hit[i]) {
+                move_fwd[i] = 0;
+                move_strafe[i] = 0;
+            }
+        }
+    }
 
     // 5. mouvement
     for (int i = 0; i < 2; ++i)
-        living_update_movement(pl[i], (jreal)strafe[i], (jreal)fwd[i], jmp[i],
+        living_update_movement(pl[i], (jreal)move_strafe[i], (jreal)move_fwd[i], jmp[i],
                                (jreal)pr.arena_x, (jreal)pr.arena_z, (int)pr.amp);
 
     // 5b. poussée entre joueurs (2x, comme vanilla)
@@ -579,23 +597,72 @@ JD void tick_one(const StatePtrs &S, const SimParams &pr, const float *actions,
             rw[i] -= pr.r_dist * (float)jsqrt(ddx * ddx + ddy * ddy + ddz * ddz);
         }
     }
+    // bonus sprint-hit : force le style sprint-reset/Z-tap au lieu du trade
+    // frontal. Zéro-somme pour garder l'incitation de défense symétrique.
+    for (int i = 0; i < 2; ++i) {
+        if (sprint_hit[i]) {
+            rw[i] += pr.r_sprint_hit;
+            rw[1 - i] -= pr.r_sprint_hit;
+        }
+    }
+    // trade simultané : les deux agents perdent du reward. C'est volontairement
+    // non zéro-somme pour rendre "1 coup / 1 coup" intrinsèquement mauvais.
+    if (dealt[0] && dealt[1]) {
+        rw[0] -= pr.r_trade_penalty;
+        rw[1] -= pr.r_trade_penalty;
+    }
+    // malus non zero-somme : laisser mourir une chaine longue doit etre couteux,
+    // sans recompenser explicitement l adversaire pour sortir du combo.
+    for (int i = 0; i < 2; ++i) {
+        bool expired = pl[i].combo > 0 &&
+                       tick - pl[i].last_hit > (int)pr.combo_window;
+        if (expired && pl[i].combo >= (int)pr.combo_drop_min && !dealt[1 - i])
+            rw[i] -= pr.r_combo_drop * (float)(pl[i].combo - 1);
+    }
     // bonus combo : chaîne de hits sans en recevoir, fenêtre combo_window
     // (zéro-somme ; règles : docs/specs/2026-06-11-combo-reward-design.md,
     //  miroir exact de combo_step dans sim/ref_backend.py)
-    for (int i = 0; i < 2; ++i) {
-        if (dealt[i]) {
-            pl[i].combo = (tick - pl[i].last_hit <= (int)pr.combo_window)
-                              ? pl[i].combo + 1 : 1;
+    if (dealt[0] && dealt[1]) {
+        for (int i = 0; i < 2; ++i) {
+            pl[i].combo = 0;
             pl[i].last_hit = tick;
-            int mc = pl[i].combo - 1;
-            if (mc > (int)pr.combo_cap) mc = (int)pr.combo_cap;
-            float bonus = pr.r_combo * (float)mc;
-            rw[i] += bonus;
-            rw[1 - i] -= bonus;
+        }
+    } else {
+        for (int i = 0; i < 2; ++i) {
+            if (dealt[i]) {
+                pl[i].combo = (tick - pl[i].last_hit <= (int)pr.combo_window)
+                                  ? pl[i].combo + 1 : 1;
+                pl[i].last_hit = tick;
+                int mc = pl[i].combo - 1;
+                if (mc > (int)pr.combo_cap) mc = (int)pr.combo_cap;
+                float bonus = pr.r_combo * (float)mc;
+                rw[i] += bonus;
+                rw[1 - i] -= bonus;
+            }
+        }
+        for (int i = 0; i < 2; ++i) {
+            if (dealt[1 - i]) pl[i].combo = 0;
+            else if (pl[i].combo > 0 && tick - pl[i].last_hit > (int)pr.combo_window)
+                pl[i].combo = 0;
         }
     }
-    for (int i = 0; i < 2; ++i)
-        if (dealt[1 - i]) pl[i].combo = 0;
+    // pression de continuation : reward dense entre deux hits pour apprendre
+    // a rester dans la zone ou le prochain coup peut prolonger la chaine.
+    if (pr.r_combo_pressure != 0.0f) {
+        for (int i = 0; i < 2; ++i) {
+            bool active = pl[i].combo > 0 &&
+                          tick - pl[i].last_hit <= (int)pr.combo_window;
+            if (active) {
+                jreal dx = pl[i].x - pl[1 - i].x;
+                jreal dz = pl[i].z - pl[1 - i].z;
+                jreal dh = jsqrt(dx * dx + dz * dz);
+                float close = (float)clampr(((jreal)3.2 - dh) / (jreal)3.2, R0, R1);
+                int chain = pl[i].combo;
+                if (chain > (int)pr.combo_cap) chain = (int)pr.combo_cap;
+                rw[i] += pr.r_combo_pressure * close * (float)chain;
+            }
+        }
+    }
     int win = -2;
     bool w0 = pl[0].hits >= (int)pr.target_hits;
     bool w1 = pl[1].hits >= (int)pr.target_hits;

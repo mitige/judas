@@ -5,6 +5,10 @@ __pycache__/
 .venv/
 build/
 dist/
+.pytest_cache/
+.ruff_cache/
+.pytest-local/
+.pytest-tmp/
 
 # Torch / training
 runs/
@@ -28,6 +32,9 @@ mod/eclipse/
 
 # CUDA build cache
 sim/.torch_ext_cache/
+torch_extensions_judas/
+.torch_extensions/
+torch_extensions_judas_candidate/
 
 # OS / IDE
 .DS_Store
@@ -38,6 +45,16 @@ output/
 
 # Archives de sauvegarde manuelles à la racine
 /*.zip
+/*.7z
 
 # Artefacts Playwright MCP (captures de verification)
 .playwright-mcp/
+
+# Local runtime verification scratch
+.tmp-prepare-aim-os/
+
+# Local agent/build analysis artifacts
+.codex/
+.gradle-codex/
+graphify-out/
+AGENTS.md

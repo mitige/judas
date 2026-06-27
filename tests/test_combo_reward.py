@@ -49,11 +49,17 @@ def test_hit_recu_brise_la_chaine():
     assert m0 == 0
 
 
-def test_trade_paye_au_tarif_courant_puis_brise_les_deux():
+def test_trade_ne_paie_pas_le_combo_et_brise_les_deux():
     # agent 0 a une chaîne de 2 ; trade simultané au tick 20
     combo, last, m0, m1 = combo_step([2, 0], [10, 0], 20, True, True, W, CAP)
+    assert (m0, m1) == (0, 0)
+    assert combo == [0, 0]
+    """
     assert (m0, m1) == (2, 0)   # 3e hit de l'agent 0 payé, 1er de l'agent 1
     assert combo == [0, 0]      # les deux chaînes brisées par le trade
+
+
+    """
 
 
 def test_fenetre_expiree_repart_a_un():
@@ -116,6 +122,45 @@ def test_ref_backend_combo_rewards_et_zero_somme():
     assert sums == pytest.approx([0.0] * len(sums), abs=1e-6)
 
 
+def test_ref_backend_combo_drop_penalty_resets_expired_chain():
+    cfg = SimConfig(randomize=False, spawn_gap=5.0, target_hits=20,
+                    max_ticks=400, reward_hit=0.0, reward_hurt=0.0,
+                    reward_win=0.0, reward_combo=0.25, combo_window=6,
+                    combo_cap=5, reward_combo_drop=0.5,
+                    combo_drop_min=3)
+    env = JudasSimRef(1, cfg)
+    env.reset()
+    env._combo[0] = [4, 0]
+    env._last_hit[0] = [1, 0]
+    env._matches[0].tick_count = 1 + cfg.combo_window
+    acts = np.zeros((1, 2, 7), dtype=np.float32)
+
+    _, rew, done, _ = env.step(acts)
+
+    assert not done[0]
+    assert rew[0, 0] == pytest.approx(-1.5)
+    assert rew[0, 1] == pytest.approx(0.0)
+    assert env._combo[0, 0] == 0
+
+
+def test_ref_backend_combo_pressure_rewards_close_active_chain():
+    cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=20,
+                    max_ticks=400, reward_hit=0.0, reward_hurt=0.0,
+                    reward_win=0.0, reward_combo=0.0, combo_window=20,
+                    combo_cap=5, reward_combo_pressure=0.1)
+    env = JudasSimRef(1, cfg)
+    env.reset()
+    env._combo[0] = [3, 0]
+    env._last_hit[0] = [env._matches[0].tick_count, 0]
+    acts = np.zeros((1, 2, 7), dtype=np.float32)
+
+    _, rew, done, _ = env.step(acts)
+
+    assert not done[0]
+    assert rew[0, 0] > 0.0
+    assert rew[0, 1] == pytest.approx(0.0)
+
+
 def test_ref_backend_combo_off_par_defaut():
     """reward_combo=0 (défaut) : rewards de hit inchangés (=1.0)."""
     cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=3,
@@ -134,6 +179,76 @@ def test_ref_backend_combo_off_par_defaut():
             break
     hit_rewards[-1] -= cfg.reward_win
     assert hit_rewards == pytest.approx([1.0, 1.0, 1.0])
+
+
+def test_ref_backend_sprint_hit_reward_et_zero_somme():
+    """reward_sprint_hit paie uniquement les hits portes en sprint+forward."""
+    cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=3,
+                    max_ticks=400, reward_combo=0.0,
+                    reward_sprint_hit=0.35)
+    env = JudasSimRef(1, cfg)
+    env.reset()
+    acts = np.zeros((1, 2, 7), dtype=np.float32)
+    acts[0, 0, 2] = 1.0   # forward
+    acts[0, 0, 5] = 1.0   # sprint key
+    acts[0, 0, 6] = 1.0   # attack
+
+    _, rew, _, _ = env.step(acts)
+    assert rew[0, 0] == pytest.approx(1.35)
+    assert rew[0, 1] == pytest.approx(-1.35)
+    assert float(rew[0, 0] + rew[0, 1]) == pytest.approx(0.0)
+
+    cfg_no_sprint = SimConfig(randomize=False, spawn_gap=1.0, target_hits=3,
+                              max_ticks=400, reward_combo=0.0,
+                              reward_sprint_hit=0.35)
+    env_no_sprint = JudasSimRef(1, cfg_no_sprint)
+    env_no_sprint.reset()
+    acts_no_sprint = np.zeros((1, 2, 7), dtype=np.float32)
+    acts_no_sprint[0, 0, 2] = 1.0
+    acts_no_sprint[0, 0, 6] = 1.0
+    _, rew_no_sprint, _, _ = env_no_sprint.step(acts_no_sprint)
+    assert rew_no_sprint[0, 0] == pytest.approx(1.0)
+    assert rew_no_sprint[0, 1] == pytest.approx(-1.0)
+
+
+def test_ref_backend_post_sprint_hit_stop_releases_forward_for_movement():
+    base = dict(randomize=False, spawn_gap=1.0, target_hits=3,
+                max_ticks=80, cps_min=20.0, cps_max=20.0,
+                reward_combo=0.0)
+    cfg_move = SimConfig(**base, post_sprint_hit_stop=False)
+    cfg_stop = SimConfig(**base, post_sprint_hit_stop=True)
+    env_move = JudasSimRef(1, cfg_move)
+    env_stop = JudasSimRef(1, cfg_stop)
+    env_move.reset()
+    env_stop.reset()
+    acts = np.zeros((1, 2, 7), dtype=np.float32)
+    acts[0, 0, 2] = 1.0
+    acts[0, 0, 5] = 1.0
+    acts[0, 0, 6] = 1.0
+
+    _, _, _, info_move = env_move.step(acts)
+    _, _, _, info_stop = env_stop.step(acts)
+
+    assert int(info_move["dealt"][0, 0]) == 1
+    assert int(info_stop["dealt"][0, 0]) == 1
+    z_move = env_move._matches[0].players[0].z
+    z_stop = env_stop._matches[0].players[0].z
+    assert z_stop < z_move
+
+
+def test_ref_backend_trade_penalty_appliquee_aux_deux_agents():
+    """Un trade hit+hit devient mauvais pour les deux agents."""
+    cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=3,
+                    max_ticks=400, reward_trade_penalty=0.4)
+    env = JudasSimRef(1, cfg)
+    env.reset()
+    acts = np.zeros((1, 2, 7), dtype=np.float32)
+    acts[0, 0, 6] = 1.0
+    acts[0, 1, 6] = 1.0
+
+    _, rew, _, _ = env.step(acts)
+    assert rew[0, 0] == pytest.approx(-0.4)
+    assert rew[0, 1] == pytest.approx(-0.4)
 
 
 # ----------------------------------- équivalence kernel (CPU, double) <-> ref
@@ -210,17 +325,19 @@ def test_kernel_combo_matches_ref(tmp_path):
 def test_kernel_combo_cap_matches_ref(tmp_path):
     """Poursuite scriptée (agent 0 avance+attaque, agent 1 passif) à travers
     le harnais CPU : la chaîne dépasse combo_cap -> la branche de clamp du
-    kernel est réellement exécutée et reste équivalente au backend ref."""
+    kernel est réellement exécutée. Les hits sont aussi portés en sprint pour
+    couvrir reward_sprint_hit côté kernel."""
     binary = _build_cpu_check(tmp_path)
 
     n_envs, n_ticks = 1, 400
     # 12 hits enchaînés : la chaîne dépasse largement le cap de 5
     cfg = SimConfig(randomize=False, spawn_gap=1.0, target_hits=12,
-                    max_ticks=400, reward_combo=0.25, combo_window=60,
-                    combo_cap=5)
+                    max_ticks=400, reward_sprint_hit=0.35,
+                    reward_combo=0.25, combo_window=60, combo_cap=5)
 
     acts = np.zeros((n_ticks, n_envs, 2, 7), dtype=np.float32)
     acts[:, :, 0, 2] = 1.0   # forward (poursuite du knockback)
+    acts[:, :, 0, 5] = 1.0   # sprint key -> sprint-hit bonus sur les hits
     acts[:, :, 0, 6] = 1.0   # attack à chaque tick
     raw = _run_cpu_check(binary, tmp_path, cfg, acts)
     obs_sz = n_envs * 2 * 48 * 4
@@ -251,6 +368,12 @@ def test_kernel_combo_cap_matches_ref(tmp_path):
             rewards_a0.append(float(rew_r[0, 0]))
 
     assert off == raw.nbytes
-    # preuve que le clamp est atteint : reward de hit plafonné à hit + cap*combo
+    # preuve que le clamp est atteint : le hit cappe le bonus combo.
+    # Le bonus sprint-hit peut apparaître sur d'autres ticks, mais il n'est pas
+    # garanti sur le tick exact du cap avec le stop post-sprint-hit.
     assert max(rewards_a0) == pytest.approx(
         cfg.reward_hit + cfg.reward_combo * cfg.combo_cap)
+    assert any(
+        r >= cfg.reward_hit + cfg.reward_sprint_hit
+        for r in rewards_a0
+    )
